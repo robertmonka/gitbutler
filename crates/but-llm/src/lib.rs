@@ -269,6 +269,11 @@ impl LLMProvider {
     /// and the provider was successfully initialized, or `None` if credentials are
     /// missing or initialization failed.
     pub fn default_openai() -> Option<Self> {
+        if let Ok(config) = but_core::git_config::open_global_config_for_reading()
+            && let Some(provider) = Self::from_git_config(&config)
+        {
+            return Some(provider);
+        }
         Self::new(LLMProviderConfig::OpenAi(None))
     }
 
