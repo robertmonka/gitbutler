@@ -16,7 +16,10 @@ pub use association::{
     reviews_by_head,
 };
 pub use ci::{CiCheck, CiConclusion, CiOutput, CiStatus, ci_checks_for_ref_with_cache};
-pub use forge_info::{ForgeCapabilities, ForgeInfo, ForgeUnitInfo, compare_branch_url, forge_info};
+pub use forge_info::{
+    ForgeCapabilities, ForgeInfo, ForgeUnitInfo, compare_branch_url,
+    compare_branch_url_for_project, forge_info, forge_info_for_project,
+};
 pub use repo::{RepoInfo, RepoPermissions, get_repo_info};
 pub use review::{
     CacheConfig, CreateForgeReviewParams, ForgeAccountValidity, ForgeReview, ForgeReviewComment,
@@ -45,6 +48,8 @@ fn determine_forge_from_host(host: &str) -> Option<ForgeName> {
         Some(ForgeName::GitHub)
     } else if host.contains("gitlab.com") || host.starts_with("gitlab.") {
         Some(ForgeName::GitLab)
+    } else if host.contains("gitea") {
+        Some(ForgeName::Gitea)
     } else if host.contains("bitbucket.org") {
         Some(ForgeName::Bitbucket)
     } else if host.contains("azure.com") {
@@ -56,19 +61,25 @@ fn determine_forge_from_host(host: &str) -> Option<ForgeName> {
 
 /// Derive the forge repository information from a remote URL.
 ///
-/// If the forge type can't be determined by simply looking for keywords in the repositories URL,
-/// look through all the known accounts and try to match their custom host strings to the repository's URL host.
-/// Looking at the known accounts involves retrieving data from storage, so that is a bit more expensive
-/// and that's why it's a fallback mechanism.
+/// If the forge type can't be determined by simply looking for keywords in the
+/// repository URL, look through all known accounts and try to match their custom
+/// host strings to the repository URL host. Gitea also consults known accounts
+/// so self-hosted instances mounted under a base path can strip that path before
+/// deriving the owner and repository.
 pub fn derive_forge_repo_info(url: &str) -> Option<ForgeRepoInfo> {
     let remote = remote_url::RemoteUrl::parse(url)?;
-    // Attempt to figure out the forge by looking at the host string and
-    // falling back to matching it to the known accounts custom host URL.
-    let forge = determine_forge_from_host(&remote.host).or_else(|| {
-        // Only fetch the accounts if it can't determine the forge type from the repository's host.
-        let accounts = get_all_forge_accounts().unwrap_or_default();
-        match_host_to_accounts_custom_host(&remote.host, &accounts)
-    })?;
+    let host_forge = determine_forge_from_host(&remote.host);
+    let accounts = if matches!(host_forge, Some(ForgeName::Gitea)) || host_forge.is_none() {
+        get_all_forge_accounts().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    derive_forge_repo_info_from_remote(&remote, host_forge, &accounts)
+}
+
+pub fn derive_forge_repo_info_with_forge(url: &str, forge: ForgeName) -> Option<ForgeRepoInfo> {
+    let remote = remote_url::RemoteUrl::parse(url)?;
     let (owner, repo) = remote.repository_parts(&forge)?;
 
     Some(ForgeRepoInfo {
@@ -79,13 +90,188 @@ pub fn derive_forge_repo_info(url: &str) -> Option<ForgeRepoInfo> {
     })
 }
 
+/// Derive forge repository information using automatic detection and project hints.
+///
+/// Detection order: explicit [`ForgeName`] override, then the preferred account's
+/// forge, then hostname keywords, then known forge accounts whose custom host
+/// matches the remote. A preferred Gitea account therefore wins over `github.com`
+/// remotes so Open links use the configured Gitea web origin.
+pub fn derive_forge_repo_info_for_project(
+    url: &str,
+    forge_override: Option<ForgeName>,
+    preferred_user: Option<&ForgeUser>,
+) -> Option<ForgeRepoInfo> {
+    let remote = remote_url::RemoteUrl::parse(url)?;
+    let repository_host = remote.host.as_str();
+    let configured_forge = forge_override.or_else(|| preferred_user.map(ForgeUser::forge_name));
+    let host_forge = configured_forge
+        .clone()
+        .or_else(|| determine_forge_from_host(repository_host))
+        .or_else(|| {
+            preferred_user.and_then(|user| match user {
+                ForgeUser::Gitea(account)
+                    if gitea_account_matches_repository(repository_host, account) =>
+                {
+                    Some(ForgeName::Gitea)
+                }
+                _ => None,
+            })
+        });
+    let mut accounts = if matches!(host_forge, Some(ForgeName::Gitea)) || host_forge.is_none() {
+        get_all_forge_accounts().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    prioritize_accounts_for_repository_host(&mut accounts, repository_host, preferred_user);
+
+    derive_forge_repo_info_from_remote(&remote, host_forge, &accounts)
+        .or_else(|| configured_forge.and_then(|forge| derive_forge_repo_info_with_forge(url, forge)))
+}
+
+fn prioritize_accounts_for_repository_host(
+    accounts: &mut Vec<ForgeUser>,
+    repository_host: &str,
+    preferred_user: Option<&ForgeUser>,
+) {
+    accounts.sort_by_key(|account| account_priority(account, repository_host));
+
+    let Some(preferred) = preferred_user else {
+        return;
+    };
+    if account_priority(preferred, repository_host) != 0 {
+        return;
+    }
+    if let Some(index) = accounts.iter().position(|account| account == preferred) {
+        let preferred = accounts.remove(index);
+        accounts.insert(0, preferred);
+    } else {
+        accounts.insert(0, preferred.clone());
+    }
+}
+
+fn account_priority(account: &ForgeUser, repository_host: &str) -> u8 {
+    let matches = match account {
+        ForgeUser::GitHub(github) => github
+            .custom_host()
+            .is_some_and(|host| custom_host_matches_repository_host(repository_host, &host)),
+        ForgeUser::GitLab(gitlab) => gitlab
+            .custom_host()
+            .is_some_and(|host| custom_host_matches_repository_host(repository_host, &host)),
+        ForgeUser::Bitbucket(bitbucket) => bitbucket
+            .custom_host()
+            .is_some_and(|host| custom_host_matches_repository_host(repository_host, &host)),
+        ForgeUser::Gitea(gitea) => gitea_account_matches_repository(repository_host, gitea),
+    };
+    if matches { 0 } else { 1 }
+}
+
+#[cfg(test)]
+fn derive_forge_repo_info_with_accounts(
+    url: &str,
+    accounts: &[ForgeUser],
+) -> Option<ForgeRepoInfo> {
+    let remote = remote_url::RemoteUrl::parse(url)?;
+    let host_forge = determine_forge_from_host(&remote.host);
+    derive_forge_repo_info_from_remote(&remote, host_forge, accounts)
+}
+
+fn derive_forge_repo_info_from_remote(
+    remote: &remote_url::RemoteUrl,
+    host_forge: Option<ForgeName>,
+    accounts: &[ForgeUser],
+) -> Option<ForgeRepoInfo> {
+    let account_match = match_host_to_accounts_custom_host_with_value(&remote.host, accounts);
+    let forge = host_forge.or_else(|| {
+        account_match
+            .as_ref()
+            .map(|(account_forge, _)| account_forge.clone())
+    })?;
+
+    let (owner, repo) = account_match
+        .as_ref()
+        .filter(|(account_forge, _)| account_forge == &forge)
+        .and_then(|(_, custom_host)| owner_repo_after_custom_host_path(&remote.path, custom_host))
+        .or_else(|| remote.repository_parts(&forge))?;
+
+    Some(ForgeRepoInfo {
+        forge,
+        owner,
+        repo,
+        protocol: remote.protocol.clone(),
+    })
+}
+
 /// Look for the best matching account by comparing the repository host to the
 /// account custom host string.
+#[cfg(test)]
 fn match_host_to_accounts_custom_host(host: &str, accounts: &[ForgeUser]) -> Option<ForgeName> {
-    accounts.iter().find_map(|account| {
-        let custom_host = account.custom_host()?;
-        custom_host_matches_repository_host(host, &custom_host).then(|| account.forge_name())
-    })
+    match_host_to_accounts_custom_host_with_value(host, accounts).map(|(forge, _)| forge)
+}
+
+fn match_host_to_accounts_custom_host_with_value(
+    host: &str,
+    accounts: &[ForgeUser],
+) -> Option<(ForgeName, String)> {
+    for account in accounts {
+        match account {
+            ForgeUser::Gitea(gitea_account) => {
+                if let Some(custom_host) =
+                    gitea_account_custom_host_for_repository(host, gitea_account)
+                {
+                    return Some((ForgeName::Gitea, custom_host));
+                }
+            }
+            _ => {
+                if let Some(custom_host) = account.custom_host()
+                    && custom_host_matches_repository_host(host, &custom_host)
+                {
+                    return Some((account.forge_name(), custom_host));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+
+fn owner_repo_after_custom_host_path(
+    repository_path: &str,
+    custom_host: &str,
+) -> Option<(String, String)> {
+    let custom_path = custom_host_path(custom_host)?;
+    let repository_path = repository_path.trim_start_matches('/');
+    let remainder = repository_path.strip_prefix(&custom_path)?;
+    let remainder = remainder.strip_prefix('/')?;
+    owner_repo_from_path(remainder)
+}
+
+fn owner_repo_from_path(path: &str) -> Option<(String, String)> {
+    let path = path.trim_start_matches('/').trim_end_matches('/');
+    let mut parts = path.split('/');
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim().trim_end_matches(".git");
+
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+
+    Some((owner.to_string(), repo.to_string()))
+}
+
+fn custom_host_path(custom_host: &str) -> Option<String> {
+    let without_scheme = custom_host
+        .split_once("://")
+        .map_or(custom_host, |(_, rest)| rest);
+    let path = without_scheme.split_once('/')?.1;
+    let path = path
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim_matches('/');
+
+    (!path.is_empty()).then(|| path.to_string())
 }
 
 /// Compare a repository host to an account custom-host string.
@@ -103,6 +289,77 @@ fn match_host_to_accounts_custom_host(host: &str, accounts: &[ForgeUser]) -> Opt
 ///   (`api.repository.com` matches `repository.com`)
 /// - partial suffixes do not match (`api.notrepository.com` does not match
 ///   `repository.com`)
+fn gitea_account_matches_repository(
+    repository_host: &str,
+    account: &but_gitea::GiteaAccountIdentifier,
+) -> bool {
+    gitea_account_custom_host_for_repository(repository_host, account).is_some()
+}
+
+pub(crate) fn gitea_web_host_for_repository(
+    repository_host: &str,
+    account: &but_gitea::GiteaAccountIdentifier,
+) -> Option<String> {
+    gitea_account_matches_repository(repository_host, account).then(|| {
+        account
+            .view_host()
+            .unwrap_or_else(|| account.host())
+            .to_string()
+    })
+}
+
+fn gitea_account_custom_host_for_repository(
+    repository_host: &str,
+    account: &but_gitea::GiteaAccountIdentifier,
+) -> Option<String> {
+    let mut hosts = vec![(account.host(), account.host().to_string())];
+    if let Some(view_host) = account.view_host() {
+        hosts.push((view_host, view_host.to_string()));
+    }
+    if let Some((_, custom_host)) = hosts
+        .iter()
+        .find(|(host, _)| custom_host_matches_repository_host(repository_host, host))
+    {
+        return Some(custom_host.clone());
+    }
+
+    if !account.hosts_contain_gitea_keyword() {
+        return None;
+    }
+
+    let repository = normalize_host_for_comparison(repository_host);
+    hosts.into_iter().find_map(|(host, custom_host)| {
+        let account_host = normalize_host_for_comparison(host);
+        hosts_share_parent_domain(&repository, &account_host).then_some(custom_host)
+    })
+}
+
+/// Split-host setups: git on `ssh.example.com`, UI on `gitea.example.com`.
+fn hosts_share_parent_domain(repository_host: &str, account_host: &str) -> bool {
+    if repository_host == account_host {
+        return true;
+    }
+    match (
+        parent_domain_suffix(repository_host),
+        parent_domain_suffix(account_host),
+    ) {
+        (Some(repository_parent), Some(account_parent))
+            if repository_parent == account_parent && repository_parent.contains('.') =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
+fn parent_domain_suffix(host: &str) -> Option<String> {
+    let labels: Vec<&str> = host.split('.').filter(|label| !label.is_empty()).collect();
+    if labels.len() < 2 {
+        return None;
+    }
+    Some(labels[labels.len() - 2..].join("."))
+}
+
 fn custom_host_matches_repository_host(repository_host: &str, account_custom_host: &str) -> bool {
     let normalized_repository_host = normalize_host_for_comparison(repository_host);
     let normalized_account_host = normalize_host_for_comparison(account_custom_host);
@@ -115,7 +372,7 @@ fn custom_host_matches_repository_host(repository_host: &str, account_custom_hos
         || normalized_account_host.ends_with(&format!(".{normalized_repository_host}"))
 }
 
-fn normalize_host_for_comparison(value: &str) -> String {
+pub(crate) fn normalize_host_for_comparison(value: &str) -> String {
     let without_scheme = value.split_once("://").map_or(value, |(_, rest)| rest);
     let without_path = without_scheme
         .split(['/', '?', '#'])
@@ -166,6 +423,15 @@ pub fn current_forge_login(
             }
             .map(|account| account.username().to_string()))
         }
+        ForgeName::Gitea => {
+            let accounts = but_gitea::list_known_gitea_accounts(storage)?;
+            let preferred = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            Ok(match preferred {
+                Some(preferred) => accounts.iter().find(|account| *account == preferred),
+                None => accounts.first(),
+            }
+            .map(|account| account.username().to_string()))
+        }
         _ => Ok(None),
     }
 }
@@ -175,6 +441,7 @@ pub fn get_all_forge_accounts() -> anyhow::Result<Vec<ForgeUser>> {
     let storage = but_forge_storage::Controller::from_path(but_path::app_data_dir()?);
     let gh_accounts = but_github::list_known_github_accounts(&storage)?;
     let gl_accounts = but_gitlab::list_known_gitlab_accounts(&storage)?;
+    let gitea_accounts = but_gitea::list_known_gitea_accounts(&storage)?;
 
     let mut forge_users = vec![];
     for gh_account in gh_accounts {
@@ -185,6 +452,10 @@ pub fn get_all_forge_accounts() -> anyhow::Result<Vec<ForgeUser>> {
         forge_users.push(ForgeUser::GitLab(gl_account));
     }
 
+    for gitea_account in gitea_accounts {
+        forge_users.push(ForgeUser::Gitea(gitea_account));
+    }
+
     Ok(forge_users)
 }
 
@@ -192,7 +463,8 @@ pub fn get_all_forge_accounts() -> anyhow::Result<Vec<ForgeUser>> {
 mod tests {
     use super::{
         ForgeName, ForgeRepoInfo, ForgeUser, current_forge_login, derive_forge_repo_info,
-        match_host_to_accounts_custom_host, normalize_host_for_comparison,
+        derive_forge_repo_info_with_accounts, match_host_to_accounts_custom_host,
+        normalize_host_for_comparison,
     };
 
     #[test]
@@ -475,6 +747,102 @@ mod tests {
             match_host_to_accounts_custom_host("gl.example.com", &accounts),
             Some(ForgeName::GitLab)
         );
+    }
+
+    #[test]
+    fn matches_gitea_self_hosted_custom_host() {
+        let accounts = vec![ForgeUser::Gitea(
+            but_gitea::GiteaAccountIdentifier::selfhosted("bob", "https://gitea.example.com"),
+        )];
+
+        assert_eq!(
+            match_host_to_accounts_custom_host("gitea.example.com", &accounts),
+            Some(ForgeName::Gitea)
+        );
+    }
+
+    #[test]
+    fn matches_gitea_when_api_host_matches_remote_and_only_view_url_contains_gitea() {
+        let account = but_gitea::GiteaAccountIdentifier::selfhosted_with_view_host(
+            "alice",
+            "https://git.example.com",
+            Some("https://gitea.example.com".to_string()),
+        );
+        assert!(!account.host().contains("gitea"));
+        assert!(account.hosts_contain_gitea_keyword());
+        let accounts = vec![ForgeUser::Gitea(account)];
+
+        let info =
+            derive_forge_repo_info_with_accounts("https://git.example.com/web/repo.git", &accounts)
+                .unwrap();
+
+        assert_eq!(info.forge, ForgeName::Gitea);
+    }
+
+    #[test]
+    fn derives_gitea_repo_info_after_configured_instance_subpath() {
+        let accounts = vec![ForgeUser::Gitea(
+            but_gitea::GiteaAccountIdentifier::selfhosted("alice", "https://example.com/git"),
+        )];
+
+        let info =
+            derive_forge_repo_info_with_accounts("https://example.com/git/org/repo.git", &accounts)
+                .expect("repo info");
+
+        assert_eq!(info.forge, ForgeName::Gitea);
+        assert_eq!(info.owner, "org");
+        assert_eq!(info.repo, "repo");
+    }
+
+    #[test]
+    fn matches_gitea_when_git_and_web_hosts_share_parent_domain() {
+        let account = but_gitea::GiteaAccountIdentifier::selfhosted_with_view_host(
+            "alice",
+            "https://gitea.example.com",
+            Some("https://gitea.example.com".to_string()),
+        );
+        let accounts = vec![ForgeUser::Gitea(account)];
+
+        let info = derive_forge_repo_info_with_accounts(
+            "ssh://git@ssh.example.com:4444/web/repo.git",
+            &accounts,
+        )
+        .expect("repo info");
+
+        assert_eq!(info.forge, ForgeName::Gitea);
+        assert_eq!(info.owner, "web");
+        assert_eq!(info.repo, "repo");
+    }
+
+    #[test]
+    fn derives_gitea_repo_info_from_explicit_forge_for_separate_ssh_host() {
+        let info = super::derive_forge_repo_info_with_forge(
+            "ssh://git@ssh.example.com:4444/web/repo.git",
+            ForgeName::Gitea,
+        )
+        .expect("repo info");
+
+        assert_eq!(info.forge, ForgeName::Gitea);
+        assert_eq!(info.owner, "web");
+        assert_eq!(info.repo, "repo");
+    }
+
+    #[test]
+    fn preferred_gitea_user_wins_over_github_host_detection() {
+        let preferred = ForgeUser::Gitea(but_gitea::GiteaAccountIdentifier::selfhosted(
+            "robert.monka",
+            "https://gitea.hostarm.com",
+        ));
+        let info = super::derive_forge_repo_info_for_project(
+            "git@github.com:gitbutlerapp/gitbutler.git",
+            None,
+            Some(&preferred),
+        )
+        .expect("repo info");
+
+        assert_eq!(info.forge, ForgeName::Gitea);
+        assert_eq!(info.owner, "gitbutlerapp");
+        assert_eq!(info.repo, "gitbutler");
     }
 
     #[test]
