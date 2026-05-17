@@ -18,6 +18,18 @@ use crate::{
 
 const RETRY_REVIEW_ACTION: &str = "If you still need this action after the review state changes, retry the same command; it fetches the latest review data.";
 
+fn derive_forge_repo_info(
+    remote_url: &str,
+    forge_override: Option<&str>,
+    preferred_forge_user: Option<&but_forge::ForgeUser>,
+) -> Option<but_forge::ForgeRepoInfo> {
+    but_forge::derive_forge_repo_info_for_project(
+        remote_url,
+        forge_override.and_then(but_forge::ForgeName::from_slug),
+        preferred_forge_user,
+    )
+}
+
 /// Automatically merge the review once all prerequisites are met.
 pub async fn enable_auto_merge(
     ctx: &mut Context,
@@ -380,11 +392,16 @@ async fn ensure_forge_authentication(ctx: &mut Context) -> Result<(), anyhow::Er
         let remote_url = ctx
             .project_meta()?
             .remote_url_with_fallback(&*ctx.repo.get()?)?;
-        let forge_repo_info = but_forge::derive_forge_repo_info(&remote_url);
+        let preferred_forge_user = ctx.legacy_project.preferred_forge_user.clone();
+        let forge_repo_info = derive_forge_repo_info(
+            &remote_url,
+            ctx.legacy_project.forge_override.as_deref(),
+            preferred_forge_user.as_ref(),
+        );
         (
             but_forge_storage::Controller::from_path(but_path::app_data_dir()?),
             forge_repo_info,
-            ctx.legacy_project.preferred_forge_user.clone(),
+            preferred_forge_user,
         )
     };
 
@@ -405,6 +422,7 @@ async fn ensure_forge_authentication(ctx: &mut Context) -> Result<(), anyhow::Er
         but_forge::ForgeName::GitHub => "GitHub",
         but_forge::ForgeName::GitLab => "GitLab",
         but_forge::ForgeName::Bitbucket => "Bitbucket",
+        but_forge::ForgeName::Gitea => "Gitea",
     };
 
     match account_validity {

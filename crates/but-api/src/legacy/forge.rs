@@ -57,20 +57,35 @@ pub fn push_remote_url(project_meta: &ProjectMeta, repo: &gix::Repository) -> Re
 fn base_and_push_repo_info(
     project_meta: &ProjectMeta,
     repo: &gix::Repository,
+    forge_override: Option<&str>,
+    preferred_forge_user: Option<&but_forge::ForgeUser>,
 ) -> Result<(but_forge::ForgeRepoInfo, Option<but_forge::ForgeRepoInfo>)> {
     let base_remote_url = remote_url(project_meta, repo)?;
     let push_remote_url = push_remote_url(project_meta, repo)?;
-    let forge_repo_info = but_forge::derive_forge_repo_info(&base_remote_url)
-        .context("No forge could be determined for this repository branch")?;
+    let forge_repo_info =
+        derive_forge_repo_info(&base_remote_url, forge_override, preferred_forge_user)
+            .context("No forge could be determined for this repository branch")?;
     let forge_push_repo_info = if base_remote_url != push_remote_url {
         Some(
-            but_forge::derive_forge_repo_info(&push_remote_url)
+            derive_forge_repo_info(&push_remote_url, forge_override, preferred_forge_user)
                 .context("Failed to derive forge information for the push repository")?,
         )
     } else {
         None
     };
     Ok((forge_repo_info, forge_push_repo_info))
+}
+
+pub(crate) fn derive_forge_repo_info(
+    remote_url: &str,
+    forge_override: Option<&str>,
+    preferred_forge_user: Option<&but_forge::ForgeUser>,
+) -> Option<but_forge::ForgeRepoInfo> {
+    but_forge::derive_forge_repo_info_for_project(
+        remote_url,
+        forge_override.and_then(ForgeName::from_slug),
+        preferred_forge_user,
+    )
 }
 
 fn review_template_content(file: FileInfo) -> Result<String> {
@@ -115,8 +130,13 @@ pub fn forge_info(ctx: &Context) -> Result<Option<but_forge::ForgeInfo>> {
     let accounts = but_forge::get_all_forge_accounts()
         .inspect_err(|err| tracing::warn!("failed to load forge accounts: {err:#}"))
         .unwrap_or_default();
-    Ok(but_forge::forge_info(
+    Ok(but_forge::forge_info_for_project(
         &remote_url(&project_meta, &repo)?,
+        ctx.legacy_project
+            .forge_override
+            .as_deref()
+            .and_then(ForgeName::from_slug),
+        ctx.legacy_project.preferred_forge_user.as_ref(),
         &accounts,
     ))
 }
@@ -137,8 +157,13 @@ pub fn forge_compare_branch_url(
     let accounts = but_forge::get_all_forge_accounts()
         .inspect_err(|err| tracing::warn!("failed to load forge accounts: {err:#}"))
         .unwrap_or_default();
-    Ok(but_forge::compare_branch_url(
+    Ok(but_forge::compare_branch_url_for_project(
         &remote_url(&project_meta, &repo)?,
+        ctx.legacy_project
+            .forge_override
+            .as_deref()
+            .and_then(ForgeName::from_slug),
+        ctx.legacy_project.preferred_forge_user.as_ref(),
         &base,
         &branch,
         fork.as_deref(),
@@ -1316,8 +1341,12 @@ pub async fn publish_review_only(
         let ctx = ctx.into_thread_local();
         let project_meta = ctx.project_meta()?;
         let repo = ctx.repo.get()?;
-        let (forge_repo_info, forge_push_repo_info) =
-            base_and_push_repo_info(&project_meta, &repo)?;
+        let (forge_repo_info, forge_push_repo_info) = base_and_push_repo_info(
+            &project_meta,
+            &repo,
+            ctx.legacy_project.forge_override.as_deref(),
+            ctx.legacy_project.preferred_forge_user.as_ref(),
+        )?;
 
         (
             but_forge_storage::Controller::from_path(but_path::app_data_dir()?),
@@ -1494,8 +1523,12 @@ pub async fn update_review_footers(
         let ctx = ctx.into_thread_local();
         let project_meta = ctx.project_meta()?;
         let repo = ctx.repo.get()?;
-        let (forge_repo_info, forge_push_repo_info) =
-            base_and_push_repo_info(&project_meta, &repo)?;
+        let (forge_repo_info, forge_push_repo_info) = base_and_push_repo_info(
+            &project_meta,
+            &repo,
+            ctx.legacy_project.forge_override.as_deref(),
+            ctx.legacy_project.preferred_forge_user.as_ref(),
+        )?;
         let settings = repo.git_settings()?;
         let description_mode = match settings.gitbutler_review_stacking_description {
             Some(but_core::ReviewStackingDescription::Top) => {
@@ -1589,8 +1622,12 @@ pub(crate) async fn prepare_review_target_updates(
         let ctx = ctx.into_thread_local();
         let project_meta = ctx.project_meta()?;
         let repo = ctx.repo.get()?;
-        let (forge_repo_info, forge_push_repo_info) =
-            base_and_push_repo_info(&project_meta, &repo)?;
+        let (forge_repo_info, forge_push_repo_info) = base_and_push_repo_info(
+            &project_meta,
+            &repo,
+            ctx.legacy_project.forge_override.as_deref(),
+            ctx.legacy_project.preferred_forge_user.as_ref(),
+        )?;
         let github_stacking_mode = match repo.git_settings()?.gitbutler_github_stacking_mode {
             Some(but_core::GitHubStackingMode::Native) => but_forge::GitHubStackingMode::Native,
             Some(but_core::GitHubStackingMode::Disabled) => but_forge::GitHubStackingMode::Disabled,
@@ -1733,7 +1770,12 @@ pub(crate) async fn restore_review_targets(
         let ctx = ctx.into_thread_local();
         let project_meta = ctx.project_meta()?;
         let repo = ctx.repo.get()?;
-        let (forge_repo_info, _) = base_and_push_repo_info(&project_meta, &repo)?;
+        let (forge_repo_info, _) = base_and_push_repo_info(
+            &project_meta,
+            &repo,
+            ctx.legacy_project.forge_override.as_deref(),
+            ctx.legacy_project.preferred_forge_user.as_ref(),
+        )?;
         (
             but_forge_storage::Controller::from_path(but_path::app_data_dir()?),
             forge_repo_info,

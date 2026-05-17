@@ -14,7 +14,7 @@ use axum::{
     response::IntoResponse,
     routing::{MethodRouter, any, post},
 };
-use but_api::{commit, diff, github, gitlab, json, legacy, open, platform, workspace};
+use but_api::{commit, diff, gitea, github, gitlab, json, legacy, open, platform, workspace};
 use but_ctx::ProjectHandleOrLegacyProjectId;
 
 mod broadcaster;
@@ -723,6 +723,27 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             "/clear_all_gitlab_tokens",
             but_post(gitlab::clear_all_gitlab_tokens_cmd),
         )
+        .route(
+            "/store_gitea_selfhosted_pat",
+            but_post_async(gitea::store_gitea_selfhosted_pat_cmd),
+        )
+        .route("/get_gitea_user", but_post_async(gitea::get_gitea_user_cmd))
+        .route(
+            "/forget_gitea_account",
+            but_post(gitea::forget_gitea_account_cmd),
+        )
+        .route(
+            "/list_known_gitea_accounts",
+            but_post(gitea::list_known_gitea_accounts_cmd),
+        )
+        .route(
+            "/clear_all_gitea_tokens",
+            but_post(gitea::clear_all_gitea_tokens_cmd),
+        )
+        .route(
+            "/check_gitea_credentials",
+            but_post_async(gitea::check_gitea_credentials_cmd),
+        )
         // Forge commands
         .route("/pr_templates", but_post(legacy::forge::pr_templates_cmd))
         .route("/pr_template", but_post(legacy::forge::pr_template_cmd))
@@ -1059,6 +1080,67 @@ async fn handle_command(
                 Err(e) => Err(e),
             }
         }
+        // Gitea commands (async, not yet migrated)
+        "store_gitea_selfhosted_pat" => {
+            let params = deserialize_json(request.params);
+            match params {
+                Ok(params) => {
+                    let result = gitea::store_gitea_selfhosted_pat_cmd(params).await;
+                    result.map(|r| json!(r))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        "get_gitea_user" => {
+            let params = deserialize_json(request.params);
+            match params {
+                Ok(params) => {
+                    let result = gitea::get_gitea_user_cmd(params).await;
+                    result.map(|r| json!(r))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        "forget_gitea_account" => {
+            let params = deserialize_json(request.params);
+            match params {
+                Ok(params) => {
+                    let result = gitea::forget_gitea_account_cmd(params);
+                    result.map(|_| json!({"result": "success"}))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        "list_known_gitea_accounts" => {
+            let params = deserialize_json(request.params);
+            match params {
+                Ok(params) => {
+                    let result = gitea::list_known_gitea_accounts_cmd(params);
+                    result.map(|r| json!(r))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        "clear_all_gitea_tokens" => {
+            let params = deserialize_json(request.params);
+            match params {
+                Ok(params) => {
+                    let result = gitea::clear_all_gitea_tokens_cmd(params);
+                    result.map(|_| json!({"result": "success"}))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        "check_gitea_credentials" => {
+            let params = deserialize_json(request.params);
+            match params {
+                Ok(params) => {
+                    let result = gitea::check_gitea_credentials_cmd(params).await;
+                    result.map(|r| json!(r))
+                }
+                Err(e) => Err(e),
+            }
+        }
         // Forge commands (some async, not yet migrated)
         "list_reviews" => {
             let params = deserialize_json(request.params);
@@ -1070,11 +1152,31 @@ async fn handle_command(
                 Err(e) => Err(e),
             }
         }
+        "get_review" => {
+            let params = deserialize_json(request.params);
+            match params {
+                Ok(params) => {
+                    let result = legacy::forge::get_review_cmd(params);
+                    result.map(|r| json!(r))
+                }
+                Err(e) => Err(e),
+            }
+        }
         "publish_review" => {
             let params = deserialize_json(request.params);
             match params {
                 Ok(params) => {
                     let result = legacy::forge::publish_review_cmd(params).await;
+                    result.map(|r| json!(r))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        "update_review" => {
+            let params = deserialize_json(request.params);
+            match params {
+                Ok(params) => {
+                    let result = legacy::forge::update_review_cmd(params).await;
                     result.map(|r| json!(r))
                 }
                 Err(e) => Err(e),

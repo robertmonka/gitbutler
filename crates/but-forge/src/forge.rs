@@ -7,8 +7,22 @@ use serde::{Deserialize, Serialize};
 pub enum ForgeName {
     GitHub,
     GitLab,
+    Gitea,
     Bitbucket,
     Azure,
+}
+
+impl ForgeName {
+    pub fn from_slug(name: &str) -> Option<Self> {
+        match name {
+            "github" => Some(Self::GitHub),
+            "gitlab" => Some(Self::GitLab),
+            "gitea" => Some(Self::Gitea),
+            "bitbucket" => Some(Self::Bitbucket),
+            "azure" => Some(Self::Azure),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(feature = "export-schema")]
@@ -36,6 +50,7 @@ pub enum ForgeUser {
     GitHub(but_github::GithubAccountIdentifier),
     GitLab(but_gitlab::GitlabAccountIdentifier),
     Bitbucket(but_bitbucket::BitbucketAccountIdentifier),
+    Gitea(but_gitea::GiteaAccountIdentifier),
 }
 #[cfg(feature = "export-schema")]
 but_schemars::register_sdk_type!(ForgeUser);
@@ -59,11 +74,18 @@ impl ForgeUser {
             _ => None,
         }
     }
+    pub fn gitea(&self) -> Option<&but_gitea::GiteaAccountIdentifier> {
+        match self {
+            ForgeUser::Gitea(id) => Some(id),
+            _ => None,
+        }
+    }
     pub fn forge_name(&self) -> ForgeName {
         match self {
             ForgeUser::GitHub(_) => ForgeName::GitHub,
             ForgeUser::GitLab(_) => ForgeName::GitLab,
             ForgeUser::Bitbucket(_) => ForgeName::Bitbucket,
+            ForgeUser::Gitea(_) => ForgeName::Gitea,
         }
     }
     /// The enterprise/self-hosted instance host, when the account has one.
@@ -72,6 +94,7 @@ impl ForgeUser {
             ForgeUser::GitHub(id) => id.custom_host(),
             ForgeUser::GitLab(id) => id.custom_host(),
             ForgeUser::Bitbucket(id) => id.custom_host(),
+            ForgeUser::Gitea(id) => id.custom_host(),
         }
     }
 }

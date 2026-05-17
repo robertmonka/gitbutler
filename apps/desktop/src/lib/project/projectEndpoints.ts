@@ -1,4 +1,10 @@
-import { invalidatesList, providesItem, providesList, ReduxTag } from "$lib/state/tags";
+import {
+	invalidatesList,
+	invalidatesType,
+	providesItem,
+	providesList,
+	ReduxTag,
+} from "$lib/state/tags";
 import type { AddProjectOutcome, Project } from "$lib/project/project";
 import type { BackendEndpointBuilder } from "$lib/state/backendApi";
 import type { TreeChanges } from "@gitbutler/but-sdk";
@@ -55,7 +61,10 @@ export function buildProjectEndpoints(build: BackendEndpointBuilder) {
 		>({
 			extraOptions: { command: "update_project" },
 			query: (args) => args,
-			invalidatesTags: (_result, _error, args) => providesItem(ReduxTag.Project, args.project.id),
+			invalidatesTags: (_result, _error, args) => [
+				...providesItem(ReduxTag.Project, args.project.id),
+				invalidatesType(ReduxTag.ForgeProvider),
+			],
 		}),
 		openProjectInWindow: build.mutation<void, { id: string }>({
 			extraOptions: { command: "open_project_in_window" },

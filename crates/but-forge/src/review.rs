@@ -96,6 +96,15 @@ pub fn get_review_template_functions(forge_name: &ForgeName) -> ReviewTemplateFu
             is_valid_review_template_path: is_valid_review_template_path_gitlab,
             supported_template_directories: &[SupportedTemplateDirectory::ForgeRoot],
         },
+        ForgeName::Gitea => ReviewTemplateFunctions {
+            is_review_template: is_review_template_gitea,
+            get_root: get_gitea_directory_path,
+            is_valid_review_template_path: is_valid_review_template_path_gitea,
+            supported_template_directories: &[
+                SupportedTemplateDirectory::ForgeRoot,
+                SupportedTemplateDirectory::ProjectRoot,
+            ],
+        },
         ForgeName::Bitbucket => ReviewTemplateFunctions {
             is_review_template: is_review_template_bitbucket,
             get_root: get_bitbucket_directory_path,
@@ -148,6 +157,27 @@ fn is_review_template_gitlab(path_str: &str) -> bool {
 
 fn is_valid_review_template_path_gitlab(path: &path::Path) -> bool {
     is_review_template_gitlab(path.to_str().unwrap_or_default())
+}
+
+fn get_gitea_directory_path(root_path: &path::Path) -> path::PathBuf {
+    let mut path = root_path.to_path_buf();
+    path.push(".gitea");
+    path
+}
+
+fn is_review_template_gitea(path_str: &str) -> bool {
+    let normalized_path = path_str.replace('\\', "/");
+    (normalized_path == "PULL_REQUEST_TEMPLATE.md"
+        || normalized_path == "pull_request_template.md"
+        || normalized_path.contains(".gitea/PULL_REQUEST_TEMPLATE")
+        || normalized_path.contains(".gitea/pull_request_template")
+        || normalized_path.contains(".github/PULL_REQUEST_TEMPLATE")
+        || normalized_path.contains(".github/pull_request_template"))
+        && normalized_path.ends_with(".md")
+}
+
+fn is_valid_review_template_path_gitea(path: &path::Path) -> bool {
+    is_review_template_gitea(path.to_str().unwrap_or_default())
 }
 
 fn get_bitbucket_directory_path(root_path: &path::Path) -> path::PathBuf {
@@ -208,6 +238,16 @@ impl From<but_gitlab::GitLabLabel> for ForgeReviewLabel {
             name: label.name,
             description: None,
             color: None,
+        }
+    }
+}
+
+impl From<but_gitea::GiteaLabel> for ForgeReviewLabel {
+    fn from(label: but_gitea::GiteaLabel) -> Self {
+        ForgeReviewLabel {
+            name: label.name,
+            description: label.description,
+            color: label.color,
         }
     }
 }
@@ -286,7 +326,18 @@ impl From<but_bitbucket::BitbucketUser> for ForgeReviewUser {
         }
     }
 }
-
+impl From<but_gitea::GiteaUser> for ForgeReviewUser {
+    fn from(user: but_gitea::GiteaUser) -> Self {
+        ForgeReviewUser {
+            id: user.id,
+            login: user.login,
+            name: user.name,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            is_bot: user.is_bot,
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "export-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -496,7 +547,40 @@ impl From<but_bitbucket::BitbucketPullRequest> for ForgeReview {
         }
     }
 }
-
+impl From<but_gitea::PullRequest> for ForgeReview {
+    fn from(pr: but_gitea::PullRequest) -> Self {
+        ForgeReview {
+            html_url: pr.html_url,
+            number: pr.number,
+            title: pr.title,
+            body: pr.body,
+            author: pr.author.map(ForgeReviewUser::from),
+            labels: pr.labels.into_iter().map(ForgeReviewLabel::from).collect(),
+            draft: pr.draft,
+            source_branch: pr.source_branch,
+            target_branch: pr.target_branch,
+            sha: pr.sha,
+            integration_commit_shas: Vec::new(),
+            created_at: pr.created_at,
+            modified_at: pr.updated_at,
+            merged_at: pr.merged_at,
+            closed_at: pr.closed_at,
+            repository_ssh_url: pr.repository_ssh_url,
+            repository_https_url: pr.repository_https_url,
+            repo_owner: pr.repo_owner,
+            head_repo_is_fork: false,
+            reviewers: pr
+                .requested_reviewers
+                .into_iter()
+                .map(ForgeReviewUser::from)
+                .collect(),
+            // Gitea pull requests do not expose auto-merge.
+            auto_merge_enabled: false,
+            unit_symbol: "#".to_string(),
+            last_sync_at: chrono::Local::now().naive_local(),
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "export-schema", derive(schemars::JsonSchema))]
@@ -736,6 +820,33 @@ fn list_recently_settled_reviews(
 
             prs.into_iter().map(ForgeReview::from).collect()
         }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user
+                .as_ref()
+                .and_then(|user| user.gitea().cloned());
+            let owner = owner.clone();
+            let repo = repo.clone();
+            let storage = storage.clone();
+
+            let pulls = std::thread::spawn(move || {
+                tokio::runtime::Runtime::new()
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to create a runtime for the settled-review sweep: {e}"
+                        )
+                    })?
+                    .block_on(but_gitea::pr::list_recently_closed(
+                        preferred_account.as_ref(),
+                        &owner,
+                        &repo,
+                        &storage,
+                    ))
+            })
+            .join()
+            .map_err(|e| anyhow::anyhow!("Failed to join thread: {e:?}"))??;
+
+            pulls.into_iter().map(ForgeReview::from).collect()
+        }
         _ => Vec::new(),
     };
     Ok(reviews)
@@ -792,7 +903,15 @@ impl From<but_bitbucket::CredentialCheckResult> for ForgeAccountValidity {
         }
     }
 }
-
+impl From<but_gitea::CredentialCheckResult> for ForgeAccountValidity {
+    fn from(value: but_gitea::CredentialCheckResult) -> Self {
+        match value {
+            but_gitea::CredentialCheckResult::Invalid => ForgeAccountValidity::Invalid,
+            but_gitea::CredentialCheckResult::NoCredentials => ForgeAccountValidity::NoCredentials,
+            but_gitea::CredentialCheckResult::Valid => ForgeAccountValidity::Valid,
+        }
+    }
+}
 /// Check whether there's an account that would be used for this repository is authenticated.
 pub async fn check_forge_account_is_valid(
     preferred_forge_user: Option<crate::ForgeUser>,
@@ -860,6 +979,27 @@ pub async fn check_forge_account_is_valid(
             };
 
             but_bitbucket::check_credentials(&preferred_account, storage)
+                .await
+                .map(Into::into)
+        }
+        ForgeName::Gitea => {
+            let preferred_account = match preferred_forge_user
+                .as_ref()
+                .and_then(|user| user.gitea().cloned())
+            {
+                Some(account) => account,
+                None => {
+                    let known_accounts = but_gitea::list_known_gitea_accounts(storage)?;
+                    match known_accounts.first() {
+                        Some(account) => account.clone(),
+                        None => {
+                            return Ok(ForgeAccountValidity::NoCredentials);
+                        }
+                    }
+                }
+            };
+
+            but_gitea::check_credentials(&preferred_account, storage)
                 .await
                 .map(Into::into)
         }
@@ -959,6 +1099,32 @@ fn list_forge_reviews(
                 .map(ForgeReview::from)
                 .collect::<Vec<ForgeReview>>()
         }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user
+                .as_ref()
+                .and_then(|user| user.gitea().cloned());
+
+            let owner = owner.clone();
+            let repo = repo.clone();
+            let storage = storage.clone();
+
+            let prs = std::thread::spawn(move || {
+                tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(but_gitea::pr::list(
+                        preferred_account.as_ref(),
+                        &owner,
+                        &repo,
+                        &storage,
+                    ))
+            })
+            .join()
+            .map_err(|e| anyhow::anyhow!("Failed to join thread: {e:?}"))??;
+
+            prs.into_iter()
+                .map(ForgeReview::from)
+                .collect::<Vec<ForgeReview>>()
+        }
         _ => {
             return Err(Error::msg(format!(
                 "Listing reviews for forge {forge:?} is not implemented yet.",
@@ -966,6 +1132,49 @@ fn list_forge_reviews(
         }
     };
     Ok(reviews)
+}
+
+fn filter_gitea_prs(
+    prs: Vec<but_gitea::PullRequest>,
+    filter: &ForgeReviewFilter,
+) -> Vec<but_gitea::PullRequest> {
+    let now = chrono::Utc::now();
+    prs.into_iter()
+        .filter(|pr| {
+            if pr.merged_at.is_none() {
+                return false;
+            }
+            match filter {
+                ForgeReviewFilter::Today => {
+                    if let Some(merged_at_str) = &pr.merged_at
+                        && let Ok(merged_at) = chrono::DateTime::parse_from_rfc3339(merged_at_str)
+                    {
+                        return merged_at.date_naive() == now.date_naive();
+                    }
+                    false
+                }
+                ForgeReviewFilter::ThisWeek => {
+                    if let Some(merged_at_str) = &pr.merged_at
+                        && let Ok(merged_at) = chrono::DateTime::parse_from_rfc3339(merged_at_str)
+                    {
+                        let week_start = now
+                            - chrono::Duration::days(now.weekday().num_days_from_monday() as i64);
+                        return merged_at.date_naive() >= week_start.date_naive();
+                    }
+                    false
+                }
+                ForgeReviewFilter::ThisMonth => {
+                    if let Some(merged_at_str) = &pr.merged_at
+                        && let Ok(merged_at) = chrono::DateTime::parse_from_rfc3339(merged_at_str)
+                    {
+                        return merged_at.year() == now.year() && merged_at.month() == now.month();
+                    }
+                    false
+                }
+                ForgeReviewFilter::All => true,
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1039,6 +1248,21 @@ pub async fn list_forge_reviews_for_branch(
             )
             .await?;
             let prs = filter_bb_prs(prs, &filter);
+            Ok(prs.into_iter().map(ForgeReview::from).collect())
+        }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user
+                .as_ref()
+                .and_then(|user| user.gitea().cloned());
+            let prs = but_gitea::pr::list_all_for_target(
+                preferred_account.as_ref(),
+                owner,
+                repo,
+                branch,
+                storage,
+            )
+            .await?;
+            let prs = filter_gitea_prs(prs, &filter);
             Ok(prs.into_iter().map(ForgeReview::from).collect())
         }
         _ => Err(Error::msg(format!(
@@ -1191,6 +1415,12 @@ async fn get_forge_review_inner(
                 .and_then(|user| user.bitbucket());
             let pr = but_bitbucket::pr::get(preferred_account, owner, repo, review_number, storage)
                 .await?;
+            Ok(ForgeReview::from(pr))
+        }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr =
+                but_gitea::pr::get(preferred_account, owner, repo, review_number, storage).await?;
             Ok(ForgeReview::from(pr))
         }
         _ => Err(Error::msg(format!(
@@ -2219,7 +2449,7 @@ pub async fn get_review_base_repo_url(
                 .context("Failed to fetch PR base repo URL")
         }
         // None tells the UI to fall back to a branch-name-only check.
-        ForgeName::GitLab | ForgeName::Bitbucket | ForgeName::Azure => Ok(None),
+        ForgeName::GitLab | ForgeName::Bitbucket | ForgeName::Azure | ForgeName::Gitea => Ok(None),
     }
 }
 
@@ -2283,6 +2513,22 @@ pub async fn get_review_merge_status(
                 // leave it unset rather than feed a value it can't interpret.
                 mergeable_state: None,
                 comments_count: pr.comment_count,
+            })
+        }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr = but_gitea::pr::get(preferred_account, owner, repo, review_number, storage).await?;
+            let is_open = pr.merged_at.is_none() && pr.closed_at.is_none();
+            Ok(ReviewMergeStatus {
+                is_mergeable: pr.mergeable.unwrap_or(is_open),
+                mergeable_state: pr.mergeable.map(|mergeable| {
+                    if mergeable {
+                        "mergeable".to_string()
+                    } else {
+                        "conflict".to_string()
+                    }
+                }),
+                comments_count: pr.comments_count,
             })
         }
         _ => Err(anyhow::anyhow!(
@@ -2469,6 +2715,24 @@ pub async fn update_review(
             }
             Ok(())
         }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr_number = review_number
+                .try_into()
+                .context("PR: Failed to cast usize to i64, somehow")?;
+            let state_str = state.as_ref().map(|s| s.as_gitea_str());
+            let params = but_gitea::UpdatePullRequestParams {
+                owner,
+                repo,
+                pr_number,
+                title: None,
+                body: body.as_deref(),
+                base: target_base.as_deref(),
+                state: state_str,
+            };
+            but_gitea::pr::update(preferred_account, params, storage).await?;
+            Ok(())
+        }
         _ => Err(anyhow::anyhow!(
             "Updating pull requests for forge {forge:?} is not implemented yet."
         )),
@@ -2498,6 +2762,13 @@ impl ReviewState {
         match self {
             ReviewState::Open => "reopen",
             ReviewState::Closed => "close",
+        }
+    }
+
+    fn as_gitea_str(&self) -> &'static str {
+        match self {
+            ReviewState::Open => "open",
+            ReviewState::Closed => "closed",
         }
     }
 }
@@ -2538,7 +2809,9 @@ pub async fn merge_review(
             let params = but_gitlab::MergeMergeRequestParams {
                 project_id,
                 mr_iid,
-                squash: None,
+                squash: merge_method
+                    .as_ref()
+                    .map(|method| matches!(method, ReviewMergeMethod::Squash)),
             };
 
             but_gitlab::mr::merge(preferred_account, params, storage).await
@@ -2562,6 +2835,26 @@ pub async fn merge_review(
                 strategy,
             };
             but_bitbucket::pr::merge(preferred_account, params, storage).await
+        }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr_number = review_number
+                .try_into()
+                .context("PR: Failed to cast usize to i64, somehow")?;
+            let merge_method = merge_method.as_ref().map(|method| match method {
+                ReviewMergeMethod::Merge => "merge",
+                ReviewMergeMethod::Rebase => "rebase",
+                ReviewMergeMethod::Squash => "squash",
+            });
+            let params = but_gitea::MergePullRequestParams {
+                owner,
+                repo,
+                pr_number,
+                commit_message: None,
+                commit_title: None,
+                merge_method,
+            };
+            but_gitea::pr::merge(preferred_account, params, storage).await
         }
         _ => Err(Error::msg(format!(
             "Merging reviews for forge {forge:?} is not implemented yet.",
@@ -2671,6 +2964,19 @@ pub async fn set_review_draftiness(
             };
             but_bitbucket::pr::set_draft_state(preferred_account, params, storage).await
         }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr_number = review_number
+                .try_into()
+                .context("PR: Failed to cast usize to i64, somehow")?;
+            let params = but_gitea::SetPullRequestDraftStateParams {
+                owner,
+                repo,
+                pr_number,
+                draft,
+            };
+            but_gitea::pr::set_draft_state(preferred_account, params, storage).await
+        }
         _ => Err(Error::msg(format!(
             "Setting the draftiness of reviews for forge {forge:?} is not implemented yet.",
         ))),
@@ -2707,6 +3013,33 @@ fn github_head_owner_and_repo<'a>(
         (forge_repo_info.owner.as_str(), None)
     }
 }
+
+fn gitea_head(
+    forge_repo_info: &crate::forge::ForgeRepoInfo,
+    forge_push_repo_info: &Option<crate::forge::ForgeRepoInfo>,
+    params: &CreateForgeReviewParams,
+) -> String {
+    if let Some(forge_push_repo_info) = forge_push_repo_info
+        && forge_push_repo_info != forge_repo_info
+    {
+        format!("{}:{}", forge_push_repo_info.owner, params.source_branch)
+    } else {
+        params.source_branch.clone()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "export-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateForgeReviewParams {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub target_base: Option<String>,
+    pub state: Option<String>,
+}
+
+#[cfg(feature = "export-schema")]
+but_schemars::register_sdk_type!(UpdateForgeReviewParams);
 
 /// Create a new review (e.g. pull request) for a given forge repository
 ///
@@ -2787,8 +3120,92 @@ pub async fn create_forge_review(
             let pr = but_bitbucket::pr::create(preferred_account, pr_params, storage).await?;
             Ok(ForgeReview::from(pr))
         }
+        ForgeName::Gitea => {
+            let head = gitea_head(forge_repo_info, forge_push_repo_info, params);
+            let pr_params = but_gitea::CreatePullRequestParams {
+                owner,
+                repo,
+                title: &params.title,
+                body: &params.body,
+                head: &head,
+                base: &params.target_branch,
+                draft: params.draft,
+            };
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr = but_gitea::pr::create(preferred_account, pr_params, storage).await?;
+            Ok(ForgeReview::from(pr))
+        }
         _ => Err(Error::msg(format!(
             "Creating reviews for forge {forge:?} is not implemented yet.",
+        ))),
+    }
+}
+
+/// Update an existing review (e.g. pull request) for a given forge repository.
+pub async fn update_forge_review(
+    preferred_forge_user: &Option<crate::ForgeUser>,
+    forge_repo_info: &crate::forge::ForgeRepoInfo,
+    review_number: usize,
+    params: &UpdateForgeReviewParams,
+    storage: &but_forge_storage::Controller,
+) -> Result<ForgeReview> {
+    let crate::forge::ForgeRepoInfo {
+        forge, owner, repo, ..
+    } = forge_repo_info;
+    match forge {
+        ForgeName::GitHub => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.github());
+            let pr_number = review_number
+                .try_into()
+                .context("PR: Failed to cast usize to i64, somehow")?;
+            let pr_params = but_github::UpdatePullRequestParams {
+                owner,
+                repo,
+                pr_number,
+                title: params.title.as_deref(),
+                body: params.description.as_deref(),
+                base: params.target_base.as_deref(),
+                state: params.state.as_deref(),
+            };
+            let pr = but_github::pr::update(preferred_account, pr_params, storage).await?;
+            Ok(ForgeReview::from(pr))
+        }
+        ForgeName::GitLab => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitlab());
+            let project_id = GitLabProjectId::new(owner, repo);
+            let mr_iid = review_number
+                .try_into()
+                .context("MR: Failed to cast usize to i64, somehow")?;
+            let mr_params = but_gitlab::UpdateMergeRequestParams {
+                project_id,
+                mr_iid,
+                title: params.title.as_deref(),
+                description: params.description.as_deref(),
+                target_branch: params.target_base.as_deref(),
+                state_event: params.state.as_deref(),
+            };
+            let mr = but_gitlab::mr::update(preferred_account, mr_params, storage).await?;
+            Ok(ForgeReview::from(mr))
+        }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr_number = review_number
+                .try_into()
+                .context("PR: Failed to cast usize to i64, somehow")?;
+            let pr_params = but_gitea::UpdatePullRequestParams {
+                owner,
+                repo,
+                pr_number,
+                title: params.title.as_deref(),
+                body: params.description.as_deref(),
+                base: params.target_base.as_deref(),
+                state: params.state.as_deref(),
+            };
+            let pr = but_gitea::pr::update(preferred_account, pr_params, storage).await?;
+            Ok(ForgeReview::from(pr))
+        }
+        _ => Err(Error::msg(format!(
+            "Updating reviews for forge {forge:?} is not implemented yet.",
         ))),
     }
 }
@@ -3380,6 +3797,55 @@ pub async fn sync_reviews(
                 }
             }
         }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr_numbers: Vec<i64> = reviews.iter().map(|r| r.number).collect();
+
+            for review in reviews {
+                let current_body = if !review.update_description {
+                    match but_gitea::pr::get(
+                        preferred_account,
+                        owner,
+                        repo,
+                        review.number.try_into()?,
+                        storage,
+                    )
+                    .await
+                    {
+                        Ok(pr) => Some(pr.body),
+                        Err(err) => {
+                            errors.push(format!("PR #{} description: {err}", review.number));
+                            None
+                        }
+                    }
+                } else {
+                    Some(review.body.clone())
+                };
+                let updated_body = current_body.map(|body| {
+                    update_body_with_mode(
+                        body.as_deref(),
+                        review.number,
+                        &pr_numbers,
+                        &review.unit_symbol,
+                        description_mode,
+                    )
+                });
+
+                let params = but_gitea::UpdatePullRequestParams {
+                    owner,
+                    repo,
+                    pr_number: review.number,
+                    title: None,
+                    body: updated_body.as_deref(),
+                    base: review.target_branch.as_deref(),
+                    state: None,
+                };
+
+                if let Err(err) = but_gitea::pr::update(preferred_account, params, storage).await {
+                    errors.push(format!("PR #{}: {err}", review.number));
+                }
+            }
+        }
         _ => {
             return Err(Error::msg(format!(
                 "Updating reviews for forge {forge:?} is not implemented yet.",
@@ -3842,8 +4308,16 @@ mod tests {
     }
 
     fn repo_info(owner: &str, repo: &str) -> crate::forge::ForgeRepoInfo {
+        repo_info_for(crate::forge::ForgeName::GitHub, owner, repo)
+    }
+
+    fn repo_info_for(
+        forge: crate::forge::ForgeName,
+        owner: &str,
+        repo: &str,
+    ) -> crate::forge::ForgeRepoInfo {
         crate::forge::ForgeRepoInfo {
-            forge: crate::forge::ForgeName::GitHub,
+            forge,
             owner: owner.to_string(),
             repo: repo.to_string(),
             protocol: "https".to_string(),
@@ -3882,6 +4356,68 @@ mod tests {
 
         assert_eq!(head_owner, "target-owner");
         assert_eq!(head_repo, None);
+    }
+
+    fn create_review_params(source_branch: &str) -> CreateForgeReviewParams {
+        CreateForgeReviewParams {
+            title: "Add feature".to_string(),
+            body: String::new(),
+            source_branch: source_branch.to_string(),
+            target_branch: "main".to_string(),
+            draft: false,
+        }
+    }
+
+    #[test]
+    fn test_gitea_head_without_push_repo_uses_branch_name() {
+        let forge_repo_info = repo_info_for(
+            crate::forge::ForgeName::Gitea,
+            "target-owner",
+            "target-repo",
+        );
+        let params = create_review_params("feature-branch");
+
+        let head = gitea_head(&forge_repo_info, &None, &params);
+
+        assert_eq!(head, "feature-branch");
+    }
+
+    #[test]
+    fn test_gitea_head_with_equal_push_repo_uses_branch_name() {
+        let forge_repo_info = repo_info_for(
+            crate::forge::ForgeName::Gitea,
+            "target-owner",
+            "target-repo",
+        );
+        let forge_push_repo_info = Some(repo_info_for(
+            crate::forge::ForgeName::Gitea,
+            "target-owner",
+            "target-repo",
+        ));
+        let params = create_review_params("feature-branch");
+
+        let head = gitea_head(&forge_repo_info, &forge_push_repo_info, &params);
+
+        assert_eq!(head, "feature-branch");
+    }
+
+    #[test]
+    fn test_gitea_head_with_fork_push_repo_uses_owner_prefix() {
+        let forge_repo_info = repo_info_for(
+            crate::forge::ForgeName::Gitea,
+            "target-owner",
+            "target-repo",
+        );
+        let forge_push_repo_info = Some(repo_info_for(
+            crate::forge::ForgeName::Gitea,
+            "fork-owner",
+            "target-repo",
+        ));
+        let params = create_review_params("feature-branch");
+
+        let head = gitea_head(&forge_repo_info, &forge_push_repo_info, &params);
+
+        assert_eq!(head, "fork-owner:feature-branch");
     }
 
     #[test]
