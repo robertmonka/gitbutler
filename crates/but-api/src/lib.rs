@@ -25,9 +25,10 @@ pub mod gitlab;
 
 /// Functions for Bitbucket authentication.
 pub mod bitbucket;
-
 /// Functions that take a branch as input.
 pub mod branch;
+/// Functions for Gitea authentication.
+pub mod gitea;
 
 /// Functions that operate on the workspace.
 pub mod workspace;

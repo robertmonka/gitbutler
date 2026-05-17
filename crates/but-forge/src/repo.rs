@@ -34,6 +34,12 @@ pub async fn get_repo_info(
                 .await
                 .map(RepoInfo::from)
         }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            but_gitea::fetch_repo(preferred_account, owner, repo, storage)
+                .await
+                .map(RepoInfo::from)
+        }
         ForgeName::Azure => Err(anyhow::anyhow!(
             "Fetching repo info for forge {:?} is not implemented yet.",
             forge_repo_info.forge
@@ -162,6 +168,23 @@ impl From<but_gitlab::GitLabProject> for RepoInfo {
                 .as_deref()
                 .map(|visibility| visibility != "public"),
             delete_branch_on_merge: value.remove_source_branch_after_merge,
+        }
+    }
+}
+
+impl From<but_gitea::GiteaRepository> for RepoInfo {
+    fn from(value: but_gitea::GiteaRepository) -> Self {
+        RepoInfo {
+            permissions: value.permissions.map(|p| RepoPermissions {
+                admin: p.admin,
+                maintain: p.maintain,
+                push: p.push,
+                triage: p.triage,
+                pull: p.pull,
+            }),
+            fork: value.fork,
+            private: Some(value.private),
+            delete_branch_on_merge: value.delete_branch_on_merge,
         }
     }
 }

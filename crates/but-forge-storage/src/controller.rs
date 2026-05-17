@@ -195,7 +195,68 @@ impl Controller {
         settings.bitbucket.known_accounts.retain(|a| a != account);
         self.save_settings(&settings)
     }
+    /// Get all known Gitea accounts.
+    pub fn gitea_accounts(&self) -> anyhow::Result<Vec<crate::settings::GiteaAccount>> {
+        let settings = self.read_settings()?;
+        Ok(settings.gitea.known_accounts)
+    }
 
+    /// Add a Gitea account if it does not already exist.
+    pub fn add_gitea_account(&self, account: &crate::settings::GiteaAccount) -> anyhow::Result<()> {
+        let mut settings = self.read_settings()?;
+
+        let first_match = settings.gitea.known_accounts.iter().position(|existing| {
+            existing.host() == account.host() && existing.username() == account.username()
+        });
+        settings.gitea.known_accounts.retain(|existing| {
+            existing.host() != account.host() || existing.username() != account.username()
+        });
+        if let Some(index) = first_match {
+            settings
+                .gitea
+                .known_accounts
+                .insert(index, account.to_owned());
+        } else {
+            settings.gitea.known_accounts.push(account.to_owned());
+        }
+        self.save_settings(&settings)
+    }
+
+    /// Clear all Gitea accounts.
+    /// Returns the list of access token keys that should be deleted.
+    pub fn clear_all_gitea_accounts(&self) -> anyhow::Result<Vec<String>> {
+        let mut settings = self.read_settings()?;
+        let access_tokens_to_delete = settings
+            .gitea
+            .known_accounts
+            .iter()
+            .map(|account| account.access_token_key().to_string())
+            .collect::<Vec<String>>();
+        for key in &access_tokens_to_delete {
+            settings.cached_profiles.remove(key);
+        }
+        settings.gitea.known_accounts.clear();
+        self.save_settings(&settings)?;
+
+        Ok(access_tokens_to_delete)
+    }
+
+    /// Remove a Gitea account and its cached profile.
+    pub fn remove_gitea_account(
+        &self,
+        account: &crate::settings::GiteaAccount,
+    ) -> anyhow::Result<()> {
+        let mut settings = self.read_settings()?;
+        for existing in &settings.gitea.known_accounts {
+            if existing.host() == account.host() && existing.username() == account.username() {
+                settings.cached_profiles.remove(existing.access_token_key());
+            }
+        }
+        settings.gitea.known_accounts.retain(|existing| {
+            existing.host() != account.host() || existing.username() != account.username()
+        });
+        self.save_settings(&settings)
+    }
     fn read_settings(&self) -> anyhow::Result<crate::settings::ForgeSettings> {
         self.settings_storage.read()
     }
@@ -209,6 +270,7 @@ impl Controller {
 mod tests {
     use super::*;
     use crate::settings::{BitbucketAccount, CachedProfile, GitHubAccount, GitLabAccount};
+    use crate::settings::{CachedProfile, GitHubAccount, GitLabAccount, GiteaAccount};
 
     fn test_controller() -> (Controller, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -338,6 +400,41 @@ mod tests {
         assert!(
             controller
                 .cached_profile("bitbucket_apitoken_bb@test.com")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn remove_gitea_account_clears_cached_profile() {
+        let (controller, _dir) = test_controller();
+        let account = GiteaAccount::SelfHosted {
+            username: "gteauser".into(),
+            host: "https://gitea.example.com".into(),
+            view_host: None,
+            access_token_key: "gitea_selfhosted_https://gitea.example.com".into(),
+        };
+        controller.add_gitea_account(&account).unwrap();
+        controller
+            .set_cached_profile(
+                "gitea_selfhosted_https://gitea.example.com",
+                Some(CachedProfile {
+                    email: Some("gtea@test.com".into()),
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+
+        assert!(
+            controller
+                .cached_profile("gitea_selfhosted_https://gitea.example.com")
+                .unwrap()
+                .is_some()
+        );
+        controller.remove_gitea_account(&account).unwrap();
+        assert!(
+            controller
+                .cached_profile("gitea_selfhosted_https://gitea.example.com")
                 .unwrap()
                 .is_none()
         );
