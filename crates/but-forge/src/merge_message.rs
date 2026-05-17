@@ -28,7 +28,7 @@ pub fn merged_review_from_message<'a>(
 ) -> Option<MergedReviewFromMessage<'a>> {
     match forge {
         ForgeName::GitHub => github_merged_review(message),
-        ForgeName::GitLab | ForgeName::Bitbucket | ForgeName::Azure => None,
+        ForgeName::GitLab | ForgeName::Bitbucket | ForgeName::Azure | ForgeName::Gitea => None,
     }
 }
 
@@ -150,6 +150,14 @@ mod tests {
             ),
             None,
             "only GitHub's message shapes are recognised"
+        );
+        assert_eq!(
+            merged_review_from_message(
+                &ForgeName::Gitea,
+                "Merge pull request #1 from a/b\n\ntitle"
+            ),
+            None,
+            "Gitea merge messages are not recognised yet"
         );
     }
 }

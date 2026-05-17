@@ -13,7 +13,7 @@
 
 use anyhow::{Context, bail};
 use but_api::{
-    bitbucket, branch, commit, diff, github, gitlab, land, legacy, open, platform, resolve,
+    bitbucket, branch, commit, diff, gitea, github, gitlab, land, legacy, open, platform, resolve,
     workspace,
 };
 use but_settings::AppSettingsWithDiskSync;
@@ -232,6 +232,12 @@ fn main() -> anyhow::Result<()> {
                 bitbucket::tauri_list_known_bitbucket_accounts::list_known_bitbucket_accounts,
                 bitbucket::tauri_clear_all_bitbucket_tokens::clear_all_bitbucket_tokens,
                 bitbucket::tauri_check_bitbucket_credentials::check_bitbucket_credentials,
+                gitea::tauri_store_gitea_selfhosted_pat::store_gitea_selfhosted_pat,
+                gitea::tauri_get_gitea_user::get_gitea_user,
+                gitea::tauri_forget_gitea_account::forget_gitea_account,
+                gitea::tauri_list_known_gitea_accounts::list_known_gitea_accounts,
+                gitea::tauri_clear_all_gitea_tokens::clear_all_gitea_tokens,
+                gitea::tauri_check_gitea_credentials::check_gitea_credentials,
                 diff::tauri_commit_details::commit_details,
                 diff::tauri_commit_details_with_line_stats::commit_details_with_line_stats,
                 workspace::tauri_get_workspace::get_workspace,

@@ -3,7 +3,7 @@ import { showToast, showWarning } from "$lib/notifications/toasts";
 import { projectPath } from "$lib/routes/routes.svelte";
 import { TestId } from "@gitbutler/ui";
 // Inlined to avoid circular import with forge/.
-type ForgeName = "github" | "gitlab" | "bitbucket" | "azure" | "default";
+type ForgeName = "github" | "gitlab" | "gitea" | "bitbucket" | "azure" | "default";
 import type { ApiProject, ForgeUser } from "@gitbutler/but-sdk";
 
 export type Project = {
