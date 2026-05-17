@@ -20,6 +20,8 @@ pub mod gitlab;
 pub mod bitbucket;
 
 pub mod branch;
+/// Functions for Gitea authentication.
+pub mod gitea;
 
 pub mod workspace;
 

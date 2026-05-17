@@ -780,10 +780,12 @@ async fn forge_show_overview(out: &mut OutputChannel) -> CliResult<()> {
     let known_gh_accounts = but_api::github::list_known_github_accounts()?;
     let known_gl_accounts = but_api::gitlab::list_known_gitlab_accounts()?;
     let known_bb_accounts = but_api::bitbucket::list_known_bitbucket_accounts()?;
+    let known_gitea_accounts = but_api::gitea::list_known_gitea_accounts()?;
 
     let no_accounts = known_gh_accounts.is_empty()
         && known_gl_accounts.is_empty()
-        && known_bb_accounts.is_empty();
+        && known_bb_accounts.is_empty()
+        && known_gitea_accounts.is_empty();
 
     // Checking credentials talks to each forge, and only the human output shows the result,
     // one forge at a time as its checks finish.
@@ -800,11 +802,20 @@ async fn forge_show_overview(out: &mut OutputChannel) -> CliResult<()> {
             let section = check_bitbucket_accounts(&known_bb_accounts).await;
             some_accounts_invalid |= write_forge_accounts_section(writer, t, &section)?;
         }
+        if !known_gitea_accounts.is_empty() {
+            let section = check_gitea_accounts(&known_gitea_accounts).await;
+            some_accounts_invalid |= write_forge_accounts_section(writer, t, &section)?;
+        }
     }
 
     out.print_cli_output(ForgeAccountsOutcome {
         no_accounts,
-        accounts: extract_account_details(known_gh_accounts, known_gl_accounts, known_bb_accounts),
+        accounts: extract_account_details(
+            known_gh_accounts,
+            known_gl_accounts,
+            known_bb_accounts,
+            known_gitea_accounts,
+        ),
         some_accounts_invalid,
     })
 }
@@ -871,7 +882,7 @@ impl CliOutputHuman for ForgeAccountsOutcome {
             writeln!(out)?;
             writeln!(
                 out,
-                "Run {} to authenticate with GitHub, GitLab or Bitbucket.",
+                "Run {} to authenticate with GitHub, GitLab, Bitbucket, or Gitea.",
                 t.command_suggestion.paint("but config forge auth")
             )?;
             return Ok(());
@@ -921,11 +932,12 @@ struct ForgeAccount {
     account_type: String,
 }
 
-/// Extract account details for JSON output, combining GitHub, GitLab and Bitbucket accounts into a unified format
+/// Extract account details for JSON output, combining forge accounts into a unified format
 fn extract_account_details(
     known_gh_accounts: Vec<but_github::GithubAccountIdentifier>,
     known_gl_accounts: Vec<but_gitlab::GitlabAccountIdentifier>,
     known_bb_accounts: Vec<but_bitbucket::BitbucketAccountIdentifier>,
+    known_gitea_accounts: Vec<but_gitea::GiteaAccountIdentifier>,
 ) -> Vec<ForgeAccount> {
     let mut accounts: Vec<ForgeAccount> = Vec::new();
 
@@ -978,6 +990,21 @@ fn extract_account_details(
             account_type,
         });
     }
+
+    // Add Gitea accounts
+    for account in &known_gitea_accounts {
+        let (username, account_type) = match account {
+            but_gitea::GiteaAccountIdentifier::SelfHosted { username, host, .. } => (
+                format!("{username}@{host}"),
+                "Gitea Self-Hosted".to_string(),
+            ),
+        };
+        accounts.push(ForgeAccount {
+            provider: "Gitea".to_string(),
+            username,
+            account_type,
+        });
+    }
     accounts
 }
 
@@ -987,6 +1014,7 @@ async fn forge_auth(out: &mut OutputChannel) -> CliResult<()> {
         GitHub,
         GitLab,
         Bitbucket,
+        Gitea,
     }
 
     impl From<ForgeProvider> for String {
@@ -995,6 +1023,7 @@ async fn forge_auth(out: &mut OutputChannel) -> CliResult<()> {
                 ForgeProvider::GitHub => "GitHub".to_string(),
                 ForgeProvider::GitLab => "GitLab".to_string(),
                 ForgeProvider::Bitbucket => "Bitbucket".to_string(),
+                ForgeProvider::Gitea => "Gitea".to_string(),
             }
         }
     }
@@ -1002,7 +1031,8 @@ async fn forge_auth(out: &mut OutputChannel) -> CliResult<()> {
     let auth_options = nonempty::nonempty![
         ("GitHub", ForgeProvider::GitHub),
         ("GitLab", ForgeProvider::GitLab),
-        ("Bitbucket", ForgeProvider::Bitbucket)
+        ("Bitbucket", ForgeProvider::Bitbucket),
+        ("Gitea", ForgeProvider::Gitea),
     ];
     let selected_option = {
         let mut input = out.prepare_for_terminal_input().ok_or_else(|| {
@@ -1025,6 +1055,7 @@ async fn forge_auth(out: &mut OutputChannel) -> CliResult<()> {
         ForgeProvider::GitHub => github_auth(out).await?,
         ForgeProvider::GitLab => gitlab_auth(out).await?,
         ForgeProvider::Bitbucket => bitbucket_auth(out).await?,
+        ForgeProvider::Gitea => gitea_auth(out).await?,
     }
     Ok(())
 }
@@ -1139,6 +1170,35 @@ async fn gitlab_self_hosted(mut inout: InputOutputChannel<'_>) -> Result<()> {
         .context("No PAT provided. Aborting authentication.")?;
     let AuthStatusResponse { username, .. } =
         but_api::gitlab::store_gitlab_selfhosted_pat(input, base_url)
+            .await
+            .map_err(|err| err.context("Authentication failed"))?;
+
+    writeln!(inout, "Authentication successful! Welcome, {username}.")?;
+    Ok(())
+}
+
+/// Authenticate with a self-hosted Gitea instance.
+async fn gitea_auth(out: &mut OutputChannel) -> Result<()> {
+    let input = out
+        .prepare_for_terminal_input()
+        .context("Human input required - run this in a terminal")?;
+    gitea_self_hosted(input).await
+}
+
+/// Authenticate with Gitea using a Personal Access Token (PAT).
+async fn gitea_self_hosted(mut inout: InputOutputChannel<'_>) -> Result<()> {
+    use but_gitea::AuthStatusResponse;
+
+    let base_url = inout
+        .prompt("Please enter your Gitea instance URL (e.g., https://gitea.mycompany.com) and hit enter:")?
+        .context("No host provided. Aborting authentication.")?;
+
+    let input = inout
+        .prompt_secret("Now, please enter your Gitea Personal Access Token (PAT) and hit enter:")?
+        .context("No PAT provided. Aborting authentication.")?;
+
+    let AuthStatusResponse { username, .. } =
+        but_api::gitea::store_gitea_selfhosted_pat(input, base_url, None)
             .await
             .map_err(|err| err.context("Authentication failed"))?;
 
@@ -1306,12 +1366,30 @@ async fn check_bitbucket_accounts(
         accounts,
     }
 }
-
+async fn check_gitea_accounts(
+    known_gitea_accounts: &[but_gitea::GiteaAccountIdentifier],
+) -> ForgeAccountsSection {
+    let mut accounts = Vec::new();
+    for account in known_gitea_accounts {
+        let status = match but_api::gitea::check_gitea_credentials(account.clone()).await {
+            Ok(but_gitea::CredentialCheckResult::Valid) => CredentialStatus::Valid,
+            Ok(but_gitea::CredentialCheckResult::Invalid) => CredentialStatus::Invalid,
+            Ok(but_gitea::CredentialCheckResult::NoCredentials) => CredentialStatus::NoCredentials,
+            Err(err) => CredentialStatus::Unknown(format!("{err:#}")),
+        };
+        accounts.push((account.to_string(), status));
+    }
+    ForgeAccountsSection {
+        forge: "Gitea",
+        accounts,
+    }
+}
 #[derive(Debug, Clone)]
 enum AccountToForget {
     GitHub(but_github::GithubAccountIdentifier),
     GitLab(but_gitlab::GitlabAccountIdentifier),
     Bitbucket(but_bitbucket::BitbucketAccountIdentifier),
+    Gitea(but_gitea::GiteaAccountIdentifier),
 }
 
 impl Display for AccountToForget {
@@ -1320,6 +1398,7 @@ impl Display for AccountToForget {
             AccountToForget::GitHub(account) => write!(f, "GitHub account '{account}'"),
             AccountToForget::GitLab(account) => write!(f, "GitLab account '{account}'"),
             AccountToForget::Bitbucket(account) => write!(f, "Bitbucket account '{account}'"),
+            AccountToForget::Gitea(account) => write!(f, "Gitea account '{account}'"),
         }
     }
 }
@@ -1335,6 +1414,9 @@ fn forget_account(account: &AccountToForget) -> Result<()> {
         AccountToForget::Bitbucket(bb_account) => {
             but_api::bitbucket::forget_bitbucket_account(bb_account.clone())
         }
+        AccountToForget::Gitea(gitea_account) => {
+            but_api::gitea::forget_gitea_account(gitea_account.clone())
+        }
     }
 }
 
@@ -1342,6 +1424,7 @@ async fn forge_forget(username: Option<String>, out: &mut OutputChannel) -> Resu
     let known_gh_accounts = but_api::github::list_known_github_accounts()?;
     let known_gl_accounts = but_api::gitlab::list_known_gitlab_accounts()?;
     let known_bb_accounts = but_api::bitbucket::list_known_bitbucket_accounts()?;
+    let known_gitea_accounts = but_api::gitea::list_known_gitea_accounts()?;
 
     // Gather all potential accounts to delete based on the provided username (or all if no username provided)
     let mut accounts_to_delete: Vec<AccountToForget> = Vec::new();
@@ -1363,7 +1446,11 @@ async fn forge_forget(username: Option<String>, out: &mut OutputChannel) -> Resu
             accounts_to_delete.push(AccountToForget::Bitbucket(account.clone()));
         }
     }
-
+    for account in known_gitea_accounts {
+        if username.as_ref().is_none_or(|u| account.username() == u) {
+            accounts_to_delete.push(AccountToForget::Gitea(account.clone()));
+        }
+    }
     if accounts_to_delete.is_empty() {
         if let Some((username, out)) = username.zip(out.for_human()) {
             writeln!(out, "No known forge account matching '{username}'")?;

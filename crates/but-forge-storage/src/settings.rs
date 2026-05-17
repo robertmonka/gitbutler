@@ -22,6 +22,9 @@ pub struct ForgeSettings {
     pub gitlab: GitLabSettings,
     #[serde(default)]
     pub bitbucket: BitbucketSettings,
+    /// Gitea-specific settings.
+    #[serde(default)]
+    pub gitea: GiteaSettings,
     /// Cached user profiles, keyed by account `access_token_key`.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub cached_profiles: HashMap<String, CachedProfile>,
@@ -158,7 +161,51 @@ impl BitbucketAccount {
         }
     }
 }
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GiteaSettings {
+    /// Gitea-specific settings.
+    #[serde(default, deserialize_with = "deserialize_lenient_vec")]
+    pub known_accounts: Vec<GiteaAccount>,
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum GiteaAccount {
+    SelfHosted {
+        // Hostname of the self-hosted Gitea instance.
+        host: String,
+        // Optional web UI base URL for browser links.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        view_host: Option<String>,
+        // Username associated with the PAT account.
+        username: String,
+        // Key to retrieve the access token from secure storage.
+        access_token_key: String,
+    },
+}
+
+impl GiteaAccount {
+    pub fn access_token_key(&self) -> &str {
+        match self {
+            GiteaAccount::SelfHosted {
+                access_token_key, ..
+            } => access_token_key,
+        }
+    }
+
+    pub fn username(&self) -> &str {
+        match self {
+            GiteaAccount::SelfHosted { username, .. } => username,
+        }
+    }
+
+    pub fn host(&self) -> &str {
+        match self {
+            GiteaAccount::SelfHosted { host, .. } => host,
+        }
+    }
+}
 /// Deserialize a list of values, silently discarding entries that cannot be
 /// deserialized (e.g. legacy bare-string usernames from an older storage format).
 fn deserialize_lenient_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
@@ -241,6 +288,14 @@ mod tests {
                     access_token_key: "bitbucket_apitoken_bb@test.com".into(),
                 }],
             },
+            gitea: GiteaSettings {
+                known_accounts: vec![GiteaAccount::SelfHosted {
+                    username: "gteatest".into(),
+                    host: "https://gitea.example.com".into(),
+                    view_host: None,
+                    access_token_key: "gitea_selfhosted_https://gitea.example.com".into(),
+                }],
+            },
             cached_profiles: HashMap::new(),
         };
         let json = serde_json::to_string(&settings).unwrap();
@@ -248,6 +303,7 @@ mod tests {
         assert_eq!(roundtripped.github.known_accounts.len(), 1);
         assert_eq!(roundtripped.gitlab.known_accounts.len(), 1);
         assert_eq!(roundtripped.bitbucket.known_accounts.len(), 1);
+        assert_eq!(roundtripped.gitea.known_accounts.len(), 1);
     }
 
     #[test]
