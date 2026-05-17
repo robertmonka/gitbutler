@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum ForgeName {
     GitHub,
     GitLab,
+    Gitea,
     Bitbucket,
     Azure,
 }
@@ -16,6 +17,7 @@ impl ForgeName {
         match self {
             Self::GitHub => Some("github.com"),
             Self::GitLab => Some("gitlab.com"),
+            Self::Gitea => None,
             Self::Bitbucket => Some("bitbucket.org"),
             Self::Azure => Some("dev.azure.com"),
         }
@@ -34,6 +36,7 @@ impl ForgeName {
         match value.trim().to_ascii_lowercase().as_str() {
             "github" => Some(ForgeName::GitHub),
             "gitlab" => Some(ForgeName::GitLab),
+            "gitea" => Some(ForgeName::Gitea),
             "bitbucket" => Some(ForgeName::Bitbucket),
             "azure" => Some(ForgeName::Azure),
             _ => None,
@@ -123,6 +126,7 @@ pub enum ForgeUser {
     GitHub(but_github::GithubAccountIdentifier),
     GitLab(but_gitlab::GitlabAccountIdentifier),
     Bitbucket(but_bitbucket::BitbucketAccountIdentifier),
+    Gitea(but_gitea::GiteaAccountIdentifier),
 }
 #[cfg(feature = "export-schema")]
 but_schemars::register_sdk_type!(ForgeUser);
@@ -146,11 +150,18 @@ impl ForgeUser {
             _ => None,
         }
     }
+    pub fn gitea(&self) -> Option<&but_gitea::GiteaAccountIdentifier> {
+        match self {
+            ForgeUser::Gitea(id) => Some(id),
+            _ => None,
+        }
+    }
     pub fn forge_name(&self) -> ForgeName {
         match self {
             ForgeUser::GitHub(_) => ForgeName::GitHub,
             ForgeUser::GitLab(_) => ForgeName::GitLab,
             ForgeUser::Bitbucket(_) => ForgeName::Bitbucket,
+            ForgeUser::Gitea(_) => ForgeName::Gitea,
         }
     }
     /// The enterprise/self-hosted instance host, when the account has one.
@@ -159,6 +170,7 @@ impl ForgeUser {
             ForgeUser::GitHub(id) => id.custom_host(),
             ForgeUser::GitLab(id) => id.custom_host(),
             ForgeUser::Bitbucket(id) => id.custom_host(),
+            ForgeUser::Gitea(id) => id.custom_host(),
         }
     }
 }

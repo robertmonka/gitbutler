@@ -71,8 +71,19 @@ pub fn forge_info(
     accounts: &[ForgeUser],
     override_forge: Option<ForgeName>,
 ) -> Option<ForgeInfo> {
-    let repo_info = crate::derive_forge_repo_info(remote_url, override_forge)?;
-    let base_url = build_base_url(remote_url, &repo_info, accounts);
+    forge_info_for_project(remote_url, override_forge, None, accounts)
+}
+
+/// Build the per-project ForgeInfo from the project's remote URL and project hints.
+pub fn forge_info_for_project(
+    remote_url: &str,
+    forge_override: Option<ForgeName>,
+    preferred_user: Option<&ForgeUser>,
+    accounts: &[ForgeUser],
+) -> Option<ForgeInfo> {
+    let repo_info =
+        crate::derive_forge_repo_info_for_project(remote_url, forge_override, preferred_user)?;
+    let base_url = build_base_url(remote_url, &repo_info, preferred_user, accounts);
     let (commit_path, pr_path) = url_paths(&repo_info.forge);
     let (unit, posthog) = label_for(&repo_info.forge);
     let capabilities = capabilities_for(&repo_info.forge);
@@ -98,8 +109,30 @@ pub fn compare_branch_url(
     accounts: &[ForgeUser],
     override_forge: Option<ForgeName>,
 ) -> Option<String> {
-    let repo_info = crate::derive_forge_repo_info(remote_url, override_forge)?;
-    let base_url = build_base_url(remote_url, &repo_info, accounts);
+    compare_branch_url_for_project(
+        remote_url,
+        override_forge,
+        None,
+        base,
+        branch,
+        fork,
+        accounts,
+    )
+}
+
+/// Web compare URL for a branch with project-specific forge hints.
+pub fn compare_branch_url_for_project(
+    remote_url: &str,
+    forge_override: Option<ForgeName>,
+    preferred_user: Option<&ForgeUser>,
+    base: &str,
+    branch: &str,
+    fork: Option<&str>,
+    accounts: &[ForgeUser],
+) -> Option<String> {
+    let repo_info =
+        crate::derive_forge_repo_info_for_project(remote_url, forge_override, preferred_user)?;
+    let base_url = build_base_url(remote_url, &repo_info, preferred_user, accounts);
     let head = match fork {
         Some(f) => format!("{f}:{branch}"),
         None => branch.to_string(),
@@ -110,7 +143,7 @@ pub fn compare_branch_url(
         None => encode_path(branch),
     };
     Some(match repo_info.forge {
-        ForgeName::GitHub => format!("{base_url}/compare/{}...{path_head}", encode_path(base)),
+        ForgeName::GitHub | ForgeName::Gitea => format!("{base_url}/compare/{}...{path_head}", encode_path(base)),
         ForgeName::GitLab => format!("{base_url}/-/compare/{}...{path_head}", encode_path(base)),
         ForgeName::Bitbucket => format!(
             "{base_url}/branch/{path_head}?dest={}",
@@ -132,7 +165,12 @@ fn encode_path(path: &str) -> String {
         .join("/")
 }
 
-fn build_base_url(remote_url: &str, repo_info: &ForgeRepoInfo, accounts: &[ForgeUser]) -> String {
+fn build_base_url(
+    remote_url: &str,
+    repo_info: &ForgeRepoInfo,
+    preferred_user: Option<&ForgeUser>,
+    accounts: &[ForgeUser],
+) -> String {
     // Web URLs need https — git+ssh remotes can't open in a browser.
     let rewrote_scheme = repo_info.protocol == "ssh" || repo_info.protocol == "git";
     let scheme = if rewrote_scheme {
@@ -147,6 +185,7 @@ fn build_base_url(remote_url: &str, repo_info: &ForgeRepoInfo, accounts: &[Forge
         .unwrap_or_else(|| match repo_info.forge {
             ForgeName::GitHub => "github.com".into(),
             ForgeName::GitLab => "gitlab.com".into(),
+            ForgeName::Gitea => "gitea.com".into(),
             ForgeName::Bitbucket => "bitbucket.org".into(),
             ForgeName::Azure => "dev.azure.com".into(),
         });
@@ -165,11 +204,25 @@ fn build_base_url(remote_url: &str, repo_info: &ForgeRepoInfo, accounts: &[Forge
             let host = host.strip_prefix("ssh.").unwrap_or(&host);
             format!("{scheme}://{host}/{owner}/_git/{repo}")
         }
+        ForgeName::Gitea => {
+            let owner = &repo_info.owner;
+            let repo = &repo_info.repo;
+            let origin = gitea_web_base_url(remote_url, preferred_user, accounts)
+                .or_else(|| {
+                    rewrote_scheme
+                        .then(|| {
+                            account_web_origin(accounts, preferred_user, &repo_info.forge, &host)
+                        })
+                        .flatten()
+                })
+                .unwrap_or_else(|| format!("{scheme}://{host}"));
+            format!("{}/{owner}/{repo}", origin.trim_end_matches('/'))
+        }
         _ => {
             // An http(s) remote's own origin is authoritative; only rewritten
             // ssh/git remotes lack the web scheme and port.
             let origin = rewrote_scheme
-                .then(|| account_web_origin(accounts, &repo_info.forge, &host))
+                .then(|| account_web_origin(accounts, preferred_user, &repo_info.forge, &host))
                 .flatten()
                 .unwrap_or_else(|| format!("{scheme}://{host}"));
             format!("{origin}/{owner}/{repo}")
@@ -180,16 +233,24 @@ fn build_base_url(remote_url: &str, repo_info: &ForgeRepoInfo, accounts: &[Forge
 /// The web origin of the configured account for `host`, if any. The custom
 /// host is the instance URL the user entered, so unlike the remote URL it
 /// carries the web scheme and port even when the remote is SSH.
-fn account_web_origin(accounts: &[ForgeUser], forge: &ForgeName, host: &str) -> Option<String> {
+fn account_web_origin(
+    accounts: &[ForgeUser],
+    preferred_user: Option<&ForgeUser>,
+    forge: &ForgeName,
+    host: &str,
+) -> Option<String> {
     let host = crate::normalize_host_for_comparison(host);
-    accounts.iter().find_map(|account| {
-        if account.forge_name() != *forge {
-            return None;
-        }
-        let custom_host = account.custom_host()?;
-        (crate::normalize_host_for_comparison(&custom_host) == host)
-            .then(|| custom_host_origin(&custom_host))
-    })
+    preferred_user
+        .into_iter()
+        .chain(accounts.iter())
+        .find_map(|account| {
+            if account.forge_name() != *forge {
+                return None;
+            }
+            let custom_host = account.custom_host()?;
+            (crate::normalize_host_for_comparison(&custom_host) == host)
+                .then(|| custom_host_origin(&custom_host))
+        })
 }
 
 /// Reduce a stored custom host (hostname, origin, or full API endpoint URL)
@@ -206,9 +267,34 @@ fn custom_host_origin(custom_host: &str) -> String {
     format!("{}://{authority}", scheme.to_ascii_lowercase())
 }
 
+fn gitea_web_base_url(
+    remote_url: &str,
+    preferred_user: Option<&ForgeUser>,
+    accounts: &[ForgeUser],
+) -> Option<String> {
+    if let Some(account) = preferred_user.and_then(ForgeUser::gitea) {
+        return Some(gitea_account_web_origin(account));
+    }
+
+    let repository_host = crate::remote_url::RemoteUrl::parse(remote_url)?.host;
+
+    accounts.iter().find_map(|account| match account {
+        ForgeUser::Gitea(account) => {
+            crate::gitea_web_host_for_repository(&repository_host, account)
+                .map(|host| custom_host_origin(&host))
+        }
+        _ => None,
+    })
+}
+
+fn gitea_account_web_origin(account: &but_gitea::GiteaAccountIdentifier) -> String {
+    custom_host_origin(account.view_host().unwrap_or_else(|| account.host()))
+}
+
 fn url_paths(forge: &ForgeName) -> (&'static str, &'static str) {
     match forge {
         ForgeName::GitHub => ("/commit/", "/pull/"),
+        ForgeName::Gitea => ("/commit/", "/pulls/"),
         ForgeName::GitLab => ("/-/commit/", "/-/merge_requests/"),
         ForgeName::Bitbucket => ("/commits/", "/pull-requests/"),
         ForgeName::Azure => ("/commit/", "/pullrequest/"),
@@ -217,13 +303,16 @@ fn url_paths(forge: &ForgeName) -> (&'static str, &'static str) {
 
 fn label_for(forge: &ForgeName) -> (ForgeUnitInfo, &'static str) {
     match forge {
-        ForgeName::GitHub | ForgeName::Bitbucket | ForgeName::Azure => (
+        ForgeName::GitHub | ForgeName::Gitea | ForgeName::Bitbucket | ForgeName::Azure => (
             ForgeUnitInfo {
                 name: "Pull request".into(),
                 abbr: "PR".into(),
                 symbol: "#".into(),
             },
-            "PR",
+            match forge {
+                ForgeName::Gitea => "Gitea PR",
+                _ => "PR",
+            },
         ),
         ForgeName::GitLab => (
             ForgeUnitInfo {
@@ -247,6 +336,14 @@ fn capabilities_for(forge: &ForgeName) -> ForgeCapabilities {
             review_management: true,
         },
         ForgeName::GitLab => ForgeCapabilities {
+            checks: true,
+            repo_info: true,
+            pr_service: true,
+            list_service: true,
+            review_comments: false,
+            review_management: false,
+        },
+        ForgeName::Gitea => ForgeCapabilities {
             checks: true,
             repo_info: true,
             pr_service: true,
@@ -296,9 +393,206 @@ mod tests {
             build_base_url(
                 "https://git.selfhosted.example/group/repo.git",
                 &repo_info,
+                None,
                 &[]
             ),
             "https://git.selfhosted.example/group/repo"
+        );
+    }
+
+    #[test]
+    fn account_with_api_endpoint_custom_host_yields_web_origin() {
+        let accounts = [ForgeUser::GitLab(
+            but_gitlab::GitlabAccountIdentifier::selfhosted(
+                "bob",
+                "http://gitlab.example.com:8080/api/v4",
+            ),
+        )];
+        let info = forge_info("git@gitlab.example.com:group/repo.git", &accounts, None).unwrap();
+        assert_eq!(info.base_url, "http://gitlab.example.com:8080/group/repo");
+    }
+
+    #[test]
+    fn account_for_other_host_does_not_change_web_origin() {
+        let accounts = [ForgeUser::GitLab(
+            but_gitlab::GitlabAccountIdentifier::selfhosted("bob", "https://gitlab.other.com:8080"),
+        )];
+        let info = forge_info("git@gitlab.example.com:group/repo.git", &accounts, None).unwrap();
+        assert_eq!(info.base_url, "https://gitlab.example.com/group/repo");
+    }
+
+    #[test]
+    fn https_remote_origin_wins_over_account_without_port() {
+        // #14678 behavior must survive: an https remote's explicit port is
+        // authoritative even when the account host was stored without one.
+        let accounts = [ForgeUser::GitLab(
+            but_gitlab::GitlabAccountIdentifier::selfhosted("bob", "gitlab.example.com"),
+        )];
+        let info = forge_info(
+            "https://gitlab.example.com:8080/group/repo.git",
+            &accounts,
+            None,
+        )
+        .unwrap();
+        assert_eq!(info.base_url, "https://gitlab.example.com:8080/group/repo");
+    }
+
+    #[test]
+    fn stored_self_hosted_account_round_trips_into_web_origin() {
+        // The path but-api takes: account persisted to storage, listed back,
+        // and fed into forge_info — the reporter's exact setup in #14626.
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = but_forge_storage::Controller::from_path(tmp.path());
+        storage
+            .add_gitlab_account(&but_forge_storage::settings::GitLabAccount::SelfHosted {
+                username: "bob".into(),
+                host: "https://gitlab.example.com:8080".into(),
+                access_token_key: "unused".into(),
+            })
+            .unwrap();
+        let accounts: Vec<ForgeUser> = but_gitlab::list_known_gitlab_accounts(&storage)
+            .unwrap()
+            .into_iter()
+            .map(ForgeUser::GitLab)
+            .collect();
+        let info = forge_info("git@gitlab.example.com:group/repo.git", &accounts, None).unwrap();
+        assert_eq!(info.base_url, "https://gitlab.example.com:8080/group/repo");
+    }
+
+    #[test]
+    fn bitbucket_compare_url_encodes_dest() {
+        let url = compare_branch_url(
+            "https://bitbucket.org/owner/repo.git",
+            "release/1.0",
+            "feat",
+            None,
+            &[],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            url,
+            "https://bitbucket.org/owner/repo/branch/feat?dest=release%2F1.0"
+        );
+    }
+
+    // Commit and PR/MR hyperlinks are built on the frontend as
+    // `{baseUrl}{commitUrlPath}{sha}` / `{baseUrl}{prUrlPath}{number}`.
+    // These assert the full composed URL per forge so a typo in the
+    // path segments can't silently ship broken links — including
+    // Bitbucket and Azure, which have no other forge integration to
+    // surface a break.
+
+    /// Compose what the frontend `commitUrl(forge, sha)` helper produces.
+    fn composed_commit_url(remote: &str, sha: &str) -> String {
+        let info = forge_info(remote, &[], None).unwrap();
+        format!("{}{}{}", info.base_url, info.commit_url_path, sha)
+    }
+
+    /// Compose what the frontend `prUrl(forge, number)` helper produces.
+    fn composed_pr_url(remote: &str, number: i64) -> String {
+        let info = forge_info(remote, &[], None).unwrap();
+        format!("{}{}{}", info.base_url, info.pr_url_path, number)
+    }
+
+    #[test]
+    fn github_commit_and_pr_urls() {
+        assert_eq!(
+            composed_commit_url("https://github.com/owner/repo.git", "abc123"),
+            "https://github.com/owner/repo/commit/abc123"
+        );
+        assert_eq!(
+            composed_pr_url("https://github.com/owner/repo.git", 42),
+            "https://github.com/owner/repo/pull/42"
+        );
+    }
+
+    #[test]
+    fn gitlab_commit_and_mr_urls() {
+        let info = forge_info("https://gitlab.com/group/repo.git", &[], None).unwrap();
+        assert!(info.capabilities.checks);
+        assert_eq!(
+            composed_commit_url("https://gitlab.com/group/repo.git", "abc123"),
+            "https://gitlab.com/group/repo/-/commit/abc123"
+        );
+        assert_eq!(
+            composed_pr_url("https://gitlab.com/group/repo.git", 42),
+            "https://gitlab.com/group/repo/-/merge_requests/42"
+        );
+    }
+
+    #[test]
+    fn bitbucket_commit_and_pr_urls() {
+        assert_eq!(
+            composed_commit_url("https://bitbucket.org/owner/repo.git", "abc123"),
+            "https://bitbucket.org/owner/repo/commits/abc123"
+        );
+        assert_eq!(
+            composed_pr_url("https://bitbucket.org/owner/repo.git", 42),
+            "https://bitbucket.org/owner/repo/pull-requests/42"
+        );
+    }
+
+    #[test]
+    fn gitea_compare_commit_and_pr_urls() {
+        let url = compare_branch_url(
+            "https://gitea.example.com/owner/repo.git",
+            "main",
+            "feat",
+            None,
+            &[],
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            url,
+            "https://gitea.example.com/owner/repo/compare/main...feat"
+        );
+        assert_eq!(
+            composed_commit_url("https://gitea.example.com/owner/repo.git", "abc123"),
+            "https://gitea.example.com/owner/repo/commit/abc123"
+        );
+        assert_eq!(
+            composed_pr_url("https://gitea.example.com/owner/repo.git", 42),
+            "https://gitea.example.com/owner/repo/pulls/42"
+        );
+    }
+
+    #[test]
+    fn preferred_gitea_account_does_not_rewrite_github_open_urls() {
+        let remote = "git@github.com:gitbutlerapp/gitbutler.git";
+        let preferred = ForgeUser::Gitea(but_gitea::GiteaAccountIdentifier::selfhosted(
+            "robert.monka",
+            "https://gitea.example.com",
+        ));
+        let info = forge_info_for_project(
+            remote,
+            None,
+            Some(&preferred),
+            std::slice::from_ref(&preferred),
+        )
+        .unwrap();
+
+        assert_eq!(info.name, ForgeName::GitHub);
+        assert_eq!(info.base_url, "https://github.com/gitbutlerapp/gitbutler");
+        assert_eq!(
+            format!("{}{}{}", info.base_url, info.commit_url_path, "c8624c2"),
+            "https://github.com/gitbutlerapp/gitbutler/commit/c8624c2"
+        );
+    }
+
+    #[test]
+    fn azure_commit_and_pr_urls() {
+        assert_eq!(
+            composed_commit_url(
+                "https://dev.azure.com/myorg/myproject/_git/myrepo",
+                "abc123"
+            ),
+            "https://dev.azure.com/myorg/myproject/_git/myrepo/commit/abc123"
+        );
+        assert_eq!(
+            composed_pr_url("https://dev.azure.com/myorg/myproject/_git/myrepo", 42),
+            "https://dev.azure.com/myorg/myproject/_git/myrepo/pullrequest/42"
         );
     }
 }
