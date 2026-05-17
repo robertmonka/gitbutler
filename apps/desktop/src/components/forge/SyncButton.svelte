@@ -9,9 +9,10 @@
 	interface Props {
 		projectId: string;
 		disabled?: boolean;
+		onFetched?: () => void | Promise<void>;
 	}
 
-	const { projectId, disabled = false }: Props = $props();
+	const { projectId, disabled = false, onFetched }: Props = $props();
 
 	const baseBranchService = inject(BASE_BRANCH_SERVICE);
 	const branchService = inject(BRANCH_SERVICE);
@@ -58,6 +59,7 @@
 				baseBranch.result?.refetch(),
 				branchService.refresh(),
 			]);
+			await onFetched?.();
 		} finally {
 			loading = false;
 		}

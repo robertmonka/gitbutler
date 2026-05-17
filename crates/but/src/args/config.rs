@@ -45,7 +45,7 @@ pub enum Subcommands {
 
     /// View and manage forge configuration.
     ///
-    /// Shows configured forge accounts (GitHub, GitLab, Bitbucket) and authentication status.
+    /// Shows configured forge accounts (GitHub, GitLab, Bitbucket, Gitea, etc.) and authentication status.
     /// Use subcommands to manage accounts or native GitHub stacked pull requests.
     ///
     /// ## Examples
@@ -442,7 +442,7 @@ impl UserConfigKey {
 /// Subcommands for `but config forge`
 #[derive(Debug, Clone, clap::Subcommand)]
 pub enum ForgeSubcommand {
-    /// Authenticate with the forge (GitHub, GitLab, or Bitbucket).
+    /// Authenticate with your forge provider (GitHub, GitLab, Bitbucket, Gitea, etc.).
     ///
     /// This will guide you through the authentication process using either:
     /// GitHub
@@ -458,6 +458,9 @@ pub enum ForgeSubcommand {
     ///  - Atlassian API token with scopes (read:user:bitbucket,
     ///    read:repository:bitbucket, read:pullrequest:bitbucket,
     ///    write:pullrequest:bitbucket)
+    ///
+    /// Gitea
+    ///  - Self-Hosted Personal Access Token (PAT)
     Auth,
 
     /// List authenticated forge accounts known to GitButler.
