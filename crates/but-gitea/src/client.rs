@@ -136,6 +136,60 @@ impl GiteaClient {
         repo: &str,
         reference: &str,
     ) -> Result<Option<Vec<GiteaCommitStatus>>> {
+        let sha = match self.resolve_commit_sha(owner, repo, reference).await? {
+            Some(sha) => sha,
+            None => return Ok(None),
+        };
+        self.list_statuses_for_sha(owner, repo, &sha).await
+    }
+
+    /// Resolve a branch, tag, or SHA to a commit SHA.
+    ///
+    /// Branch names with slashes cannot go in the `/commits/{ref}/statuses` path:
+    /// Gitea (and typical reverse proxies) reject `%2F` there with HTTP 400.
+    /// The commits list endpoint takes `sha` as a query parameter, which proxies
+    /// accept, and then statuses are fetched with the hex SHA.
+    async fn resolve_commit_sha(
+        &self,
+        owner: &str,
+        repo: &str,
+        reference: &str,
+    ) -> Result<Option<String>> {
+        if is_likely_commit_sha(reference) {
+            return Ok(Some(reference.to_owned()));
+        }
+
+        #[derive(Deserialize)]
+        struct ApiCommit {
+            sha: String,
+        }
+
+        let url = format!("{}/repos/{owner}/{repo}/commits", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("sha", reference), ("limit", "1")])
+            .send()
+            .await?;
+        let status = response.status();
+        if is_unresolvable_ref_status(status) {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            bail!("Failed to resolve Gitea commit for ref: {status} - {error_text}");
+        }
+
+        let commits: Vec<ApiCommit> = response.json().await?;
+        Ok(commits.into_iter().next().map(|commit| commit.sha))
+    }
+
+    async fn list_statuses_for_sha(
+        &self,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+    ) -> Result<Option<Vec<GiteaCommitStatus>>> {
         #[derive(Deserialize)]
         struct ApiStatus {
             id: i64,
@@ -156,15 +210,13 @@ impl GiteaClient {
         }
 
         let url = format!(
-            "{}/repos/{}/{}/commits/{}/statuses",
+            "{}/repos/{owner}/{repo}/commits/{}/statuses",
             self.base_url,
-            owner,
-            repo,
-            urlencoding::encode(reference)
+            urlencoding::encode(sha)
         );
         let response = self.client.get(&url).send().await?;
         let status = response.status();
-        if status == reqwest::StatusCode::NOT_FOUND {
+        if is_unresolvable_ref_status(status) {
             return Ok(None);
         }
         if !status.is_success() {
@@ -185,7 +237,7 @@ impl GiteaClient {
                     url: s.url,
                     created_at: s.created_at,
                     updated_at: s.updated_at,
-                    head_sha: reference.to_string(),
+                    head_sha: sha.to_owned(),
                 })
                 .collect(),
         ))
@@ -439,6 +491,28 @@ impl GiteaClient {
         self.update_pull_request(&update_params).await?;
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_tests(base_url: impl Into<String>) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            base_url: base_url.into(),
+        }
+    }
+}
+
+fn is_likely_commit_sha(reference: &str) -> bool {
+    let len = reference.len();
+    (7..=40).contains(&len) && reference.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_unresolvable_ref_status(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::NOT_FOUND
+            | reqwest::StatusCode::BAD_REQUEST
+            | reqwest::StatusCode::UNPROCESSABLE_ENTITY
+    )
 }
 
 /// Parameters to create a Gitea pull request.
@@ -894,7 +968,8 @@ fn normalized_host_identity(host: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_host, same_account_identity, select_account, update_draft_state_in_title,
+        is_likely_commit_sha, is_unresolvable_ref_status, normalize_host, same_account_identity,
+        select_account, update_draft_state_in_title,
     };
     use crate::GiteaAccountIdentifier;
 
@@ -976,4 +1051,30 @@ mod tests {
             "unexpected error: {err}"
         );
     }
+
+    #[test]
+    fn full_and_short_hex_are_treated_as_commit_shas() {
+        assert!(is_likely_commit_sha("deadbee"));
+        assert!(is_likely_commit_sha(
+            "0123456789abcdef0123456789abcdef01234567"
+        ));
+        assert!(!is_likely_commit_sha("main"));
+        assert!(!is_likely_commit_sha("fix/ksef-invoice-candidates-build"));
+    }
+
+    #[test]
+    fn gitea_unresolvable_ref_statuses_match_github_and_bitbucket_contract() {
+        assert!(is_unresolvable_ref_status(reqwest::StatusCode::BAD_REQUEST));
+        assert!(is_unresolvable_ref_status(reqwest::StatusCode::NOT_FOUND));
+        assert!(is_unresolvable_ref_status(
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY
+        ));
+        assert!(!is_unresolvable_ref_status(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
+    }
 }
+
+#[cfg(test)]
+#[path = "client_checks_tests.rs"]
+mod client_checks_tests;
