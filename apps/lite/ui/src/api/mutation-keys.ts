@@ -12,10 +12,12 @@ type GlobalMutationKey =
 			| "forgetBitbucketAccount"
 			| "forgetGithubAccount"
 			| "forgetGitlabAccount"
+			| "forgetGiteaAccount"
 			| "resetAiConfiguration"
 			| "storeBitbucketApiToken"
 			| "storeGithubPat"
 			| "storeGitlabPat"
+			| "storeGiteaSelfhostedPat"
 			| "updateAiConfiguration"
 	  >;
 
