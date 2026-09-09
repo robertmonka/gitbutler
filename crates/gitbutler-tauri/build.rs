@@ -32,5 +32,25 @@ fn main() {
     };
     println!("cargo:rustc-env=IDENTIFIER={identifier}");
 
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        const STACK_SIZE_MIB: usize = 8;
+        const MIB_IN_BYTES: usize = 1024 * 1024;
+        let stack_size_bytes = STACK_SIZE_MIB * MIB_IN_BYTES;
+
+        match std::env::var("CARGO_CFG_TARGET_ENV").as_deref() {
+            Ok("msvc") => {
+                println!(
+                    "cargo:rustc-link-arg-bin=gitbutler-tauri=/STACK:{stack_size_bytes}"
+                );
+            }
+            Ok("gnu") => {
+                println!(
+                    "cargo:rustc-link-arg-bin=gitbutler-tauri=-Wl,--stack,{stack_size_bytes}"
+                );
+            }
+            _ => {}
+        }
+    }
+
     tauri_build::build();
 }
