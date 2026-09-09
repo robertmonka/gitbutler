@@ -658,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn preferred_gitea_account_wins_over_github_remote_for_open_urls() {
+    fn preferred_gitea_account_does_not_rewrite_github_open_urls() {
         let remote = "git@github.com:gitbutlerapp/gitbutler.git";
         let preferred = ForgeUser::Gitea(but_gitea::GiteaAccountIdentifier::selfhosted(
             "robert.monka",
@@ -668,14 +668,11 @@ mod tests {
             forge_info_for_project(remote, None, Some(&preferred), std::slice::from_ref(&preferred))
                 .unwrap();
 
-        assert_eq!(info.name, ForgeName::Gitea);
-        assert_eq!(
-            info.base_url,
-            "https://gitea.hostarm.com/gitbutlerapp/gitbutler"
-        );
+        assert_eq!(info.name, ForgeName::GitHub);
+        assert_eq!(info.base_url, "https://github.com/gitbutlerapp/gitbutler");
         assert_eq!(
             format!("{}{}{}", info.base_url, info.commit_url_path, "c8624c2"),
-            "https://gitea.hostarm.com/gitbutlerapp/gitbutler/commit/c8624c2"
+            "https://github.com/gitbutlerapp/gitbutler/commit/c8624c2"
         );
     }
 

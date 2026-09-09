@@ -92,10 +92,10 @@ pub fn derive_forge_repo_info_with_forge(url: &str, forge: ForgeName) -> Option<
 
 /// Derive forge repository information using automatic detection and project hints.
 ///
-/// Detection order: explicit [`ForgeName`] override, then the preferred account's
-/// forge, then hostname keywords, then known forge accounts whose custom host
-/// matches the remote. A preferred Gitea account therefore wins over `github.com`
-/// remotes so Open links use the configured Gitea web origin.
+/// Detection order: explicit [`ForgeName`] override, then hostname keywords,
+/// then the preferred account's forge when the host is ambiguous, then known
+/// accounts whose custom host matches the remote. Preferred account must not
+/// override a remote that already identifies as another forge.
 pub fn derive_forge_repo_info_for_project(
     url: &str,
     forge_override: Option<ForgeName>,
@@ -103,10 +103,19 @@ pub fn derive_forge_repo_info_for_project(
 ) -> Option<ForgeRepoInfo> {
     let remote = remote_url::RemoteUrl::parse(url)?;
     let repository_host = remote.host.as_str();
-    let configured_forge = forge_override.or_else(|| preferred_user.map(ForgeUser::forge_name));
+    let host_from_name = determine_forge_from_host(repository_host);
+    let configured_forge = forge_override.or_else(|| {
+        // Preferred account only fills hosts that do not already name a forge.
+        // Otherwise Open links for github.com remotes jump to an unrelated Gitea.
+        if host_from_name.is_some() {
+            None
+        } else {
+            preferred_user.map(ForgeUser::forge_name)
+        }
+    });
     let host_forge = configured_forge
         .clone()
-        .or_else(|| determine_forge_from_host(repository_host))
+        .or(host_from_name)
         .or_else(|| {
             preferred_user.and_then(|user| match user {
                 ForgeUser::Gitea(account)
@@ -828,7 +837,7 @@ mod tests {
     }
 
     #[test]
-    fn preferred_gitea_user_wins_over_github_host_detection() {
+    fn preferred_gitea_user_does_not_override_github_host_detection() {
         let preferred = ForgeUser::Gitea(but_gitea::GiteaAccountIdentifier::selfhosted(
             "robert.monka",
             "https://gitea.hostarm.com",
@@ -840,7 +849,7 @@ mod tests {
         )
         .expect("repo info");
 
-        assert_eq!(info.forge, ForgeName::Gitea);
+        assert_eq!(info.forge, ForgeName::GitHub);
         assert_eq!(info.owner, "gitbutlerapp");
         assert_eq!(info.repo, "gitbutler");
     }
