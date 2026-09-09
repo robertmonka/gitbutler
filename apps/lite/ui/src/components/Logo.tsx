@@ -16,7 +16,7 @@ for (const [path, svg] of Object.entries(modules)) {
 	logos.set(name, svg);
 }
 
-export type LogoName = "github" | "gitlab" | "bitbucket";
+export type LogoName = "github" | "gitlab" | "bitbucket" | "gitea";
 
 type Props = {
 	name: LogoName;

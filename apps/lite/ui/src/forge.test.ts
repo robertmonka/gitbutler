@@ -28,6 +28,30 @@ describe("forge", () => {
 		);
 		expect(isCloudForge(destination)).toBe(true);
 	});
+	it("recognizes Gitea destinations without treating them as cloud", () => {
+		const destination = assert(
+			forgeDestination(
+				{ ...info, name: "gitea", baseUrl: "https://gitea.hostarm.com/acme/repo" },
+				"https://gitea.hostarm.com/acme/repo/pulls/5",
+			),
+		);
+		expect(destination).toEqual({
+			name: "gitea",
+			label: "Gitea",
+			host: "gitea.hostarm.com",
+		});
+		expect(isCloudForge(destination)).toBe(false);
+	});
+	it("recognizes gitea.com as the cloud host", () => {
+		const destination = assert(
+			forgeDestination({
+				...info,
+				name: "gitea",
+				baseUrl: "https://gitea.com/acme/repo",
+			}),
+		);
+		expect(isCloudForge(destination)).toBe(true);
+	});
 	it("distinguishes backend login failures from network and permission errors", () => {
 		expect(
 			forgeAuthFailure(

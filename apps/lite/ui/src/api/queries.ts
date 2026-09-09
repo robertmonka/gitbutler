@@ -461,6 +461,11 @@ export const bitbucketAccountsQueryOptions = queryOptions({
 	queryFn: () => window.lite.listKnownBitbucketAccounts(),
 });
 
+export const giteaAccountsQueryOptions = queryOptions({
+	queryKey: ["forgeAccounts", "gitea"],
+	queryFn: () => window.lite.listKnownGiteaAccounts(),
+});
+
 // Conditional queries are very awkward, hence the duplication and oddities. This retains maximum
 // downstream flexibility e.g. with select.
 export const forgeAccountsQueryOptions = (provider: ForgeName | null | undefined) => {
@@ -474,6 +479,9 @@ export const forgeAccountsQueryOptions = (provider: ForgeName | null | undefined
 			break;
 		case "bitbucket":
 			queryFn = () => window.lite.listKnownBitbucketAccounts();
+			break;
+		case "gitea":
+			queryFn = () => window.lite.listKnownGiteaAccounts();
 			break;
 		default:
 			queryFn = skipToken;

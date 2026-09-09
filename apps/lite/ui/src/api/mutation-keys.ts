@@ -9,10 +9,12 @@ type GlobalMutationKey = Extract<
 	| "forgetBitbucketAccount"
 	| "forgetGithubAccount"
 	| "forgetGitlabAccount"
+	| "forgetGiteaAccount"
 	| "resetAiConfiguration"
 	| "storeBitbucketApiToken"
 	| "storeGithubPat"
 	| "storeGitlabPat"
+	| "storeGiteaSelfhostedPat"
 	| "updateAiConfiguration"
 >;
 
