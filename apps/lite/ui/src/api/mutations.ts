@@ -943,6 +943,14 @@ export const useForgetBitbucketAccount = () =>
 		onSuccess: (_data, _variables, _context, { client }) => invalidateTags(client, forgeAuthTags),
 	});
 
+export const useForgetGiteaAccount = () =>
+	useMutation({
+		mutationKey: ["forgetGiteaAccount"],
+		mutationFn: window.lite.forgetGiteaAccount,
+		meta: { failureTitle: "Failed to forget account" },
+		onSuccess: (_data, _variables, _context, { client }) => invalidateTags(client, forgeAuthTags),
+	});
+
 export const useStoreGithubPat = () =>
 	useMutation({
 		mutationKey: ["storeGithubPat"],
@@ -964,6 +972,14 @@ export const useStoreBitbucketApiToken = () =>
 		mutationKey: ["storeBitbucketApiToken"],
 		mutationFn: window.lite.storeBitbucketApiToken,
 		meta: { failureTitle: "Failed to add Bitbucket account" },
+		onSuccess: (_data, _variables, _context, { client }) => invalidateTags(client, forgeAuthTags),
+	});
+
+export const useStoreGiteaSelfhostedPat = () =>
+	useMutation({
+		mutationKey: ["storeGiteaSelfhostedPat"],
+		mutationFn: window.lite.storeGiteaSelfhostedPat,
+		meta: { failureTitle: "Failed to add Gitea account" },
 		onSuccess: (_data, _variables, _context, { client }) => invalidateTags(client, forgeAuthTags),
 	});
 

@@ -42,6 +42,9 @@ export const forgeDestination = (
 		case "bitbucket":
 			label = "Bitbucket";
 			break;
+		case "gitea":
+			label = "Gitea";
+			break;
 		default:
 			return null;
 	}
@@ -60,6 +63,9 @@ export const isCloudForge = (destination: ForgeDestination): boolean => {
 			break;
 		case "bitbucket":
 			cloudHost = "bitbucket.org";
+			break;
+		case "gitea":
+			cloudHost = "gitea.com";
 			break;
 	}
 

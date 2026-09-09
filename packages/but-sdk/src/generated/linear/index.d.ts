@@ -29,7 +29,7 @@ export declare function absorptionPlan(projectId: string, target: AbsorptionTarg
 /**
  * Add the caller's reaction to one comment.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:930}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:955}
  */
 export declare function addCommentReaction(projectId: string, commentId: number, kind: string): Promise<ForgeReviewReaction>
 
@@ -44,21 +44,21 @@ export declare function addProject(path: string): Promise<AddProjectOutcome>
 /**
  * Add labels to a review; returns the resulting label set.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1058}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1083}
  */
 export declare function addReviewLabels(projectId: string, reviewId: number, labels: Array<string>): Promise<Array<ForgeReviewLabel>>
 
 /**
  * Add the caller's reaction to a review itself.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:850}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:875}
  */
 export declare function addReviewReaction(projectId: string, reviewId: number, kind: string): Promise<ForgeReviewReaction>
 
 /**
  * Add the caller's reaction to one submitted review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:888}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:913}
  */
 export declare function addSubmissionReaction(projectId: string, reviewId: number, submissionId: number, kind: string): Promise<ForgeReviewReaction>
 
@@ -586,14 +586,14 @@ export declare function commitUncommitChangesFromCommits(projectId: string, sour
 /**
  * Post a top-level conversation comment on a review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1144}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1169}
  */
 export declare function createReviewComment(projectId: string, reviewId: number, body: string): Promise<ForgeReviewComment>
 
 /**
  * Reply into one of a review's diff-anchored comment threads.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:802}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:827}
  */
 export declare function createReviewThreadReply(projectId: string, threadId: string, body: string): Promise<ForgeReviewThreadComment>
 
@@ -601,7 +601,7 @@ export declare function createReviewThreadReply(projectId: string, threadId: str
  * The login this project's forge calls authenticate as, if any account is
  * configured. Resolved from stored accounts; no network.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1031}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1056}
  */
 export declare function currentForgeLogin(projectId: string): Promise<string | null>
 
@@ -618,7 +618,7 @@ export declare function deleteProject(projectId: ProjectHandleOrLegacyProjectId)
 /**
  * Delete a top-level conversation comment on a review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1016}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1041}
  */
 export declare function deleteReviewComment(projectId: string, commentId: number): Promise<void>
 
@@ -666,7 +666,7 @@ export declare function enterEditMode(projectId: string, commitId: string, stack
  * affordances without making the renderer hold per-forge URL
  * templates. `fork` is the owner namespace for fork compares.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:127}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:147}
  */
 export declare function forgeCompareBranchUrl(projectId: string, base: string, branch: string, fork: string | null): Promise<string | null>
 
@@ -675,7 +675,7 @@ export declare function forgeCompareBranchUrl(projectId: string, base: string, b
  * commit/PR URLs and pick labels without branching on forge name.
  * Returns no value when the project has no target yet or its target forge is unknown.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:107}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:122}
  */
 export declare function forgeInfo(projectId: string): Promise<ForgeInfo | null>
 
@@ -685,7 +685,7 @@ export declare function forgeInfo(projectId: string): Promise<ForgeInfo | null>
  * This is determined by the forge the base branch is pointing to.
  * Returns no value when the project has no target yet or its target forge is unknown.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:98}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:113}
  */
 export declare function forgeProvider(projectId: string): Promise<ForgeName | null>
 
@@ -703,6 +703,23 @@ export declare function forgeProvider(projectId: string): Promise<ForgeName | nu
  * {@link ../../../../../crates/but-api/src/bitbucket.rs:41}
  */
 export declare function forgetBitbucketAccount(account: BitbucketAccountIdentifier): Promise<void>
+
+/**
+ * Removes stored credentials for a specific Gitea account.
+ *
+ * Deletes the access token associated with the specified Gitea account identifier.
+ *
+ * # Arguments
+ *
+ * * `account` - Identifier for the Gitea account
+ *
+ * # Returns
+ *
+ * * `Ok(())` - Always succeeds, even if no token was found
+ *
+ * {@link ../../../../../crates/but-api/src/gitea.rs:43}
+ */
+export declare function forgetGiteaAccount(account: GiteaAccountIdentifier): Promise<void>
 
 /**
  * Removes stored credentials for a specific GitHub account.
@@ -804,6 +821,25 @@ export declare function getGbConfig(projectId: string): Promise<GitConfigSetting
 export declare function getGhUser(account: GithubAccountIdentifier): Promise<GithubAuthenticatedUserSensitive | null>
 
 /**
+ * Retrieves the authenticated user information for a Gitea account.
+ *
+ * Returns `None` if no credentials are stored for the account.
+ *
+ * # Arguments
+ *
+ * * `account` - Identifier for the Gitea account to query
+ *
+ * # Returns
+ *
+ * * `Ok(Some(AuthenticatedUser))` - User information
+ * * `Ok(None)` - No credentials stored for this account
+ * * `Err(_)` - If the API request fails or credentials are invalid
+ *
+ * {@link ../../../../../crates/but-api/src/gitea.rs:79}
+ */
+export declare function getGiteaUser(account: GiteaAccountIdentifier): Promise<AuthenticatedUserSensitive | null>
+
+/**
  * Retrieves the authenticated user information for a GitLab account.
  *
  * Fetches the stored credentials and current user profile for the specified GitLab account.
@@ -845,22 +881,22 @@ export declare function getLoginToken(): Promise<LoginToken>
 export declare function getRedoTargetSnapshot(projectId: string): Promise<Snapshot | null>
 
 /**
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1199}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1224}
  */
 export declare function getRepoInfo(projectId: string): Promise<RepoInfo>
 
 /**
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1173}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1198}
  */
 export declare function getReview(projectId: string, reviewId: number): Promise<ForgeReview>
 
 /**
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:761}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:786}
  */
 export declare function getReviewBaseRepoUrl(projectId: string, reviewId: number): Promise<string | null>
 
 /**
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1162}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1187}
  */
 export declare function getReviewMergeStatus(projectId: string, reviewId: number): Promise<ReviewMergeStatus>
 
@@ -972,7 +1008,7 @@ export declare function initGithubDeviceOauth(): Promise<Verification>
 /**
  * Get the list of review template paths for the given project.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:150}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:175}
  */
 export declare function listAvailableReviewTemplates(projectId: string): Promise<Array<string>>
 
@@ -982,14 +1018,14 @@ export declare function listAvailableReviewTemplates(projectId: string): Promise
 export declare function listBranches(projectId: string, filter: BranchListingFilter | null): Promise<Array<BranchListing>>
 
 /**
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1222}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1247}
  */
 export declare function listCiChecks(projectId: string, reference: string, cacheConfig: CacheConfig | null): Promise<Array<CiCheck>>
 
 /**
  * List the individual reactions (with who reacted) on one comment.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:833}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:858}
  */
 export declare function listCommentReactions(projectId: string, commentId: number): Promise<Array<ForgeReviewReaction>>
 
@@ -1011,6 +1047,18 @@ export declare function listEditors(): Promise<Array<Editor>>
  * {@link ../../../../../crates/but-api/src/bitbucket.rs:88}
  */
 export declare function listKnownBitbucketAccounts(): Promise<Array<BitbucketAccountIdentifier>>
+
+/**
+ * Lists all Gitea accounts with stored credentials.
+ *
+ * # Returns
+ *
+ * * `Ok(Vec<GiteaAccountIdentifier>)` - List of all known accounts
+ * * `Err(_)` - If storage access fails
+ *
+ * {@link ../../../../../crates/but-api/src/gitea.rs:94}
+ */
+export declare function listKnownGiteaAccounts(): Promise<Array<GiteaAccountIdentifier>>
 
 /**
  * Lists all GitHub accounts with stored credentials.
@@ -1057,59 +1105,59 @@ export declare function listProjectsStateless(): Promise<Array<ProjectForFronten
 /**
  * List the labels defined on the repository backing this project's reviews.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1050}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1075}
  */
 export declare function listRepoLabels(projectId: string): Promise<Array<ForgeReviewLabel>>
 
 /**
  * List the top-level conversation comments on a review, oldest first.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:778}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:803}
  */
 export declare function listReviewComments(projectId: string, reviewId: number): Promise<Array<ForgeReviewComment>>
 
 /**
  * List users who can be requested to review on this project's repository.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1096}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1121}
  */
 export declare function listReviewerCandidates(projectId: string): Promise<Array<ForgeReviewUser>>
 
 /**
  * List the individual reactions (with who reacted) on a review itself.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:821}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:846}
  */
 export declare function listReviewReactions(projectId: string, reviewId: number): Promise<Array<ForgeReviewReaction>>
 
 /**
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:278}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:303}
  */
 export declare function listReviews(projectId: string, cacheConfig: CacheConfig | null): Promise<Array<ForgeReview>>
 
 /**
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:2209}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:2251}
  */
 export declare function listReviewsForBranch(projectId: string, branch: string, filter: ForgeReviewFilter | null): Promise<Array<ForgeReview>>
 
 /**
  * List the submitted reviews (approvals, change requests) on a review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:985}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1010}
  */
 export declare function listReviewSubmissions(projectId: string, reviewId: number): Promise<Array<ForgeReviewSubmission>>
 
 /**
  * List the diff-anchored comment threads on a review, oldest first.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:790}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:815}
  */
 export declare function listReviewThreads(projectId: string, reviewId: number): Promise<Array<ForgeReviewThread>>
 
 /**
  * List the pushed commits and review requests on a review's timeline.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:968}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:993}
  */
 export declare function listReviewTimelineEvents(projectId: string, reviewId: number): Promise<Array<ForgeReviewTimelineEvent>>
 
@@ -1142,7 +1190,7 @@ export declare function loginAndPersist(token: string): Promise<UserProfile>
 /**
  * Merge a review on the forge.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1383}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1412}
  */
 export declare function mergeReview(projectId: string, reviewId: number, mergeMethod: ReviewMergeMethod | null): Promise<void>
 
@@ -1267,7 +1315,7 @@ export declare const enum ProgramCategory {
 }
 
 /**
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1260}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1285}
  */
 export declare function publishReview(projectId: string, params: PublishReviewInput): Promise<PublishReviewOutcome>
 
@@ -1287,35 +1335,35 @@ export declare function removeBranch(projectId: string, stackId: string, branchN
 /**
  * Remove one of the caller's reactions from one comment.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:949}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:974}
  */
 export declare function removeCommentReaction(projectId: string, commentId: number, reactionId: number): Promise<void>
 
 /**
  * Remove one label from a review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1077}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1102}
  */
 export declare function removeReviewLabel(projectId: string, reviewId: number, label: string): Promise<void>
 
 /**
  * Remove one of the caller's reactions from a review itself.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:869}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:894}
  */
 export declare function removeReviewReaction(projectId: string, reviewId: number, reactionId: number): Promise<void>
 
 /**
  * Remove the caller's reaction of one kind from one submitted review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:909}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:934}
  */
 export declare function removeSubmissionReaction(projectId: string, reviewId: number, submissionId: number, kind: string): Promise<void>
 
 /**
  * Request reviews from the given users on a review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1106}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1131}
  */
 export declare function requestReview(projectId: string, reviewId: number, logins: Array<string>): Promise<void>
 
@@ -1368,7 +1416,7 @@ export declare function restoreSnapshotWithKind(projectId: string, restoreKind: 
  * created remote, applies the fetched remote-tracking branch, and records the
  * review number on the applied branch metadata.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:317}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:342}
  */
 export declare function reviewApply(projectId: string, reviewId: number): Promise<ApplyOutcome>
 
@@ -1378,7 +1426,7 @@ export declare function reviewApply(projectId: string, reviewId: number): Promis
  * This function determines the forge of a project and retrieves the review template
  * from the git config.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:207}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:232}
  */
 export declare function reviewTemplate(projectId: string): Promise<ReviewTemplateInfo | null>
 
@@ -1405,14 +1453,14 @@ export declare function setPushRemote(projectId: string, pushRemote: string): Pr
 /**
  * Enable or disable a review's auto-merge.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1403}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1432}
  */
 export declare function setReviewAutoMerge(projectId: string, reviewId: number, enable: boolean): Promise<void>
 
 /**
  * Set a review to draft or ready-for-review
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1423}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1452}
  */
 export declare function setReviewDraftiness(projectId: string, reviewId: number, draft: boolean): Promise<void>
 
@@ -1420,7 +1468,7 @@ export declare function setReviewDraftiness(projectId: string, reviewId: number,
  * Set the review template path in the git configuration for the given project.
  * The template path will be validated.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:248}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:273}
  */
 export declare function setReviewTemplate(projectId: string, templatePath: string | null): Promise<void>
 
@@ -1458,6 +1506,26 @@ export declare function setTargetRefAndInitProject(projectId: string, targetRef:
  * {@link ../../../../../crates/but-api/src/bitbucket.rs:22}
  */
 export declare function storeBitbucketApiToken(email: string, accessToken: string): Promise<BitbucketAuthStatusResponse>
+
+/**
+ * Stores a Gitea Personal Access Token (PAT) for a self-hosted instance.
+ *
+ * Validates and stores the provided PAT for a specific Gitea host, then returns
+ * the authenticated user information.
+ *
+ * # Arguments
+ *
+ * * `access_token` - The Gitea PAT to store
+ * * `host` - The Gitea instance URL, for example `https://gitea.company.com`
+ *
+ * # Returns
+ *
+ * * `Ok(AuthStatusResponse)` - Token is valid, contains user details and host
+ * * `Err(_)` - If the token is invalid, host is unreachable, or storage fails
+ *
+ * {@link ../../../../../crates/but-api/src/gitea.rs:21}
+ */
+export declare function storeGiteaSelfhostedPat(accessToken: string, host: string, viewHost: string | null): Promise<AuthStatusResponseSensitive>
 
 /**
  * Stores a GitHub Personal Access Token (PAT) for github.com.
@@ -1571,21 +1639,21 @@ export declare function updateProjectSettings(projectId: ProjectHandleOrLegacyPr
  * Update arbitrary fields of a single review (title, body, state, target base).
  * Each `None` leaves that field unchanged on the forge.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1455}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1484}
  */
 export declare function updateReview(projectId: string, reviewId: number, title: string | null, body: string | null, state: ReviewState | null, targetBase: string | null): Promise<void>
 
 /**
  * Edit a top-level conversation comment on a review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:997}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1022}
  */
 export declare function updateReviewComment(projectId: string, commentId: number, body: string): Promise<ForgeReviewComment>
 
 /**
  * Update stacked reviews: description footers and, optionally, target branches.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1479}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1508}
  */
 export declare function updateReviewFooters(projectId: string, reviews: Array<ForgeReviewUpdate>): Promise<void>
 
@@ -1607,14 +1675,14 @@ export declare function uploadFile(params: UploadFileParams): Promise<Upload>
  * Additionally, it cleans up stale CI check entries for references that are no longer
  * part of any applied stack.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:2243}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:2285}
  */
 export declare function warmCiChecksCache(projectId: string): Promise<void>
 
 /**
  * Withdraw review requests for the given users on a review.
  *
- * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1125}
+ * {@link ../../../../../crates/but-api/src/legacy/forge.rs:1150}
  */
 export declare function withdrawReviewRequest(projectId: string, reviewId: number, logins: Array<string>): Promise<void>
 
@@ -2934,7 +3002,7 @@ export type ForgeInfo = {
 };
 
 /** Supported git forge types */
-export type ForgeName = "github" | "gitlab" | "bitbucket" | "azure";
+export type ForgeName = "github" | "gitlab" | "gitea" | "bitbucket" | "azure";
 
 /**
  * Represents a review (pull request/merge request) from a forge platform (GitHub, GitLab, etc.).
@@ -3205,6 +3273,9 @@ export type ForgeUser = {
 } | {
   provider: "bitbucket";
   details: BitbucketAccountIdentifier;
+} | {
+  provider: "gitea";
+  details: GiteaAccountIdentifier;
 };
 
 /**
@@ -3246,6 +3317,49 @@ export type GitHubOAuthAppSettings = {
 
 /** Controls whether GitButler registers reviewed stacks with GitHub's native stacks API. */
 export type GitHubStackingMode = "auto" | "disabled" | "native";
+
+/** A stored Gitea account identifier. */
+export type GiteaAccountIdentifier = {
+  type: "selfHosted";
+  info: {
+    /** The Gitea username. */
+    username: string;
+    /** The normalized Gitea API instance URL. */
+    host: string;
+    /** Optional web UI base URL for browser links when it differs from [`host`]. */
+    view_host: string | null;
+  };
+};
+
+/** Serializable version of [`AuthStatusResponse`] with exposed access token. */
+export type GiteaAuthStatusResponseSensitive = {
+  /** The Gitea access token as a plain string. */
+  accessToken: string;
+  /** The Gitea username. */
+  username: string;
+  /** The user's display name, if available. */
+  name: string | null;
+  /** The user's email address, if available. */
+  email: string | null;
+  /** The normalized Gitea API instance URL. */
+  host: string;
+  /** Optional web UI base URL for browser links. */
+  viewHost: string | null;
+};
+
+/** Serializable version of [`AuthenticatedUser`] with exposed access token. */
+export type GiteaAuthenticatedUserSensitive = {
+  /** The Gitea access token as a plain string. */
+  accessToken: string;
+  /** The Gitea username. */
+  username: string;
+  /** URL to the user's avatar image, if available. */
+  avatarUrl: string | null;
+  /** The user's display name, if available. */
+  name: string | null;
+  /** The user's email address, if available. */
+  email: string | null;
+};
 
 export type GithubAccountIdentifier = {
   type: "oAuthUsername";
@@ -4607,6 +4721,13 @@ export type UnifiedPatch = {
     /** The total amount of lines removed. */
     linesRemoved: number;
   };
+};
+
+export type UpdateForgeReviewParams = {
+  title: string | null;
+  description: string | null;
+  targetBase: string | null;
+  state: string | null;
 };
 
 /** Parameters for updating the user profile. */

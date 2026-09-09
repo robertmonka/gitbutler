@@ -18,7 +18,7 @@ use tracing::instrument;
 ///
 /// * `Ok(AuthStatusResponse)` - Token is valid, contains user details and host
 /// * `Err(_)` - If the token is invalid, host is unreachable, or storage fails
-#[but_api(json::AuthStatusResponseSensitive)]
+#[but_api(napi, json::AuthStatusResponseSensitive, invalidates = [ForgeAccounts, ForgeLogin])]
 #[instrument(err(Debug))]
 pub async fn store_gitea_selfhosted_pat(
     access_token: Sensitive<String>,
@@ -40,7 +40,7 @@ pub async fn store_gitea_selfhosted_pat(
 /// # Returns
 ///
 /// * `Ok(())` - Always succeeds, even if no token was found
-#[but_api]
+#[but_api(napi, invalidates = [ForgeAccounts, ForgeLogin])]
 #[instrument(err(Debug))]
 pub fn forget_gitea_account(account: but_gitea::GiteaAccountIdentifier) -> Result<()> {
     let storage = but_forge_storage::Controller::from_path(but_path::app_data_dir()?);
@@ -76,7 +76,7 @@ pub fn clear_all_gitea_tokens() -> Result<()> {
 /// * `Ok(Some(AuthenticatedUser))` - User information
 /// * `Ok(None)` - No credentials stored for this account
 /// * `Err(_)` - If the API request fails or credentials are invalid
-#[but_api(json::AuthenticatedUserSensitive)]
+#[but_api(napi, json::AuthenticatedUserSensitive)]
 #[instrument(err(Debug))]
 pub async fn get_gitea_user(
     account: but_gitea::GiteaAccountIdentifier,
@@ -91,7 +91,7 @@ pub async fn get_gitea_user(
 ///
 /// * `Ok(Vec<GiteaAccountIdentifier>)` - List of all known accounts
 /// * `Err(_)` - If storage access fails
-#[but_api]
+#[but_api(napi)]
 #[instrument(err(Debug))]
 pub fn list_known_gitea_accounts() -> Result<Vec<but_gitea::GiteaAccountIdentifier>> {
     let storage = but_forge_storage::Controller::from_path(but_path::app_data_dir()?);
