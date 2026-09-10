@@ -2,7 +2,7 @@
 
 Run from `/home/robert/dev/gitbutler`.
 
-`/etc/nixos#gitbutler` sets `CHANNEL=nightly`, `VERSION=nightly`, `WSLENV=VERSION:CHANNEL`, `OS=linux`, and `CARGO_INCREMENTAL=1`.
+Build variables are scoped to the build: the `/etc/nixos#gitbutler` devShell sets `CHANNEL=nightly`, `VERSION=nightly`, `OS=linux`, and `CARGO_INCREMENTAL=1`, and every recipe below exports what it needs explicitly. Never set `CHANNEL`/`VERSION` globally in the NixOS session and never list them in `WSLENV`: forwarding `VERSION=nightly` into Windows processes broke optima-api deploys.
 
 ## NixOS full local build
 
