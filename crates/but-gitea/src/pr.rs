@@ -114,3 +114,15 @@ pub async fn set_draft_state(
         .await
         .context("Failed to update Gitea pull request draft state")
 }
+
+/// Enable or disable pull request auto-merge.
+pub async fn set_auto_merge(
+    preferred_account: Option<&crate::GiteaAccountIdentifier>,
+    params: crate::client::SetPullRequestAutoMergeParams<'_>,
+    storage: &but_forge_storage::Controller,
+) -> Result<()> {
+    GiteaClient::from_storage(storage, preferred_account)?
+        .set_pull_request_auto_merge(&params)
+        .await
+        .context("Failed to update Gitea pull request auto-merge state")
+}

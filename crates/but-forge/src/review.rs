@@ -2926,6 +2926,20 @@ pub async fn set_review_auto_merge_state(
             };
             but_gitlab::mr::set_auto_merge(preferred_account, params, storage).await
         }
+        ForgeName::Gitea => {
+            let preferred_account = preferred_forge_user.as_ref().and_then(|user| user.gitea());
+            let pr_number = review_number
+                .try_into()
+                .context("PR: Failed to cast usize to i64, somehow")?;
+            let params = but_gitea::SetPullRequestAutoMergeParams {
+                owner,
+                repo,
+                pr_number,
+                enabled: enable,
+                merge_method: None,
+            };
+            but_gitea::pr::set_auto_merge(preferred_account, params, storage).await
+        }
         ForgeName::Bitbucket => Err(Error::msg(
             "Bitbucket Cloud does not support auto-merge for pull requests.",
         )),

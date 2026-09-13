@@ -11,8 +11,8 @@ mod token;
 pub use client::{
     AuthenticatedUser as GiteaApiAuthenticatedUser, CreatePullRequestParams, GiteaClient,
     GiteaCommitStatus, GiteaLabel, GiteaRepoPermissions, GiteaRepository, GiteaUser,
-    HttpStatusError, MergePullRequestParams, PullRequest, SetPullRequestDraftStateParams,
-    UpdatePullRequestParams, normalize_host,
+    HttpStatusError, MergePullRequestParams, PullRequest, SetPullRequestAutoMergeParams,
+    SetPullRequestDraftStateParams, UpdatePullRequestParams, normalize_host,
 };
 pub use repo::fetch_repo;
 pub use token::GiteaAccountIdentifier;
