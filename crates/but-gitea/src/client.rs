@@ -492,6 +492,50 @@ impl GiteaClient {
         Ok(())
     }
 
+    /// Enable or disable scheduled auto-merge for a pull request.
+    pub async fn set_pull_request_auto_merge(
+        &self,
+        params: &SetPullRequestAutoMergeParams<'_>,
+    ) -> Result<()> {
+        if params.pr_number <= 0 {
+            bail!("PR number must be greater than 0");
+        }
+
+        let url = format!(
+            "{}/repos/{}/{}/pulls/{}/merge",
+            self.base_url, params.owner, params.repo, params.pr_number
+        );
+
+        if params.enabled {
+            #[derive(Serialize)]
+            struct EnableAutoMergeBody<'a> {
+                #[serde(rename = "Do")]
+                merge_method: &'a str,
+                merge_when_checks_succeed: bool,
+            }
+
+            let body = EnableAutoMergeBody {
+                merge_method: params.merge_method.unwrap_or("merge"),
+                merge_when_checks_succeed: true,
+            };
+            let response = self.client.post(&url).json(&body).send().await?;
+            if !response.status().is_success() {
+                let status = response.status();
+                let error_text = response.text().await.unwrap_or_default();
+                bail!("Failed to enable Gitea pull request auto-merge: {status} - {error_text}");
+            }
+            return Ok(());
+        }
+
+        let response = self.client.delete(&url).send().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            bail!("Failed to disable Gitea pull request auto-merge: {status} - {error_text}");
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn new_for_tests(base_url: impl Into<String>) -> Self {
         Self {
@@ -564,6 +608,20 @@ pub struct MergePullRequestParams<'a> {
     /// Optional commit message.
     pub commit_message: Option<&'a str>,
     /// Optional Gitea merge method.
+    pub merge_method: Option<&'a str>,
+}
+
+/// Parameters to enable or disable Gitea pull request auto-merge.
+pub struct SetPullRequestAutoMergeParams<'a> {
+    /// Repository owner.
+    pub owner: &'a str,
+    /// Repository name.
+    pub repo: &'a str,
+    /// Pull request number.
+    pub pr_number: i64,
+    /// Whether auto-merge should be enabled.
+    pub enabled: bool,
+    /// Optional Gitea merge method used when scheduling (`Do`). Defaults to `merge`.
     pub merge_method: Option<&'a str>,
 }
 
@@ -1078,3 +1136,7 @@ mod tests {
 #[cfg(test)]
 #[path = "client_checks_tests.rs"]
 mod client_checks_tests;
+
+#[cfg(test)]
+#[path = "client_auto_merge_tests.rs"]
+mod client_auto_merge_tests;
