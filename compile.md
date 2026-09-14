@@ -68,15 +68,15 @@ Build in the native NTFS clone of this fork at `C:\webarm\gitbutler` (branch `gi
 
 ### Sync from NixOS before compiling (required)
 
-Windows must not build from a stale `origin` tip. A local NixOS GitButler workspace often holds commits that are **not** on the remote yet (applied stacks such as `gitea-native-integration`, docs/compile fixes, Windows PE stack, etc.). `git pull --ff-only` / `reset --hard origin/...` on Windows only sees what was **pushed**. Building after that without a push leaves Windows on an outdated tree.
+Windows must not build from a stale `origin` tip. A local NixOS GitButler workspace often holds commits that are **not** on the remote yet (applied stacks such as `gitea-native-integration`, docs/compile fixes, Windows PE stack, etc.). All version-control steps use **`but` only** (never `git fetch` / `git pull` / `git reset`). Building without a push leaves Windows on an outdated tree.
 
 **Required sequence before every Windows compile that should match current NixOS work:**
 
-1. On **NixOS**, publish everything that belongs in the Windows build: updates from `main` / the integration target **and** all local applied fixes that should ship in this nightly (the stacks you care about for the binary — typically including `gitea-native-integration` and any other applied branches whose commits must land on that branch tip).
-2. Push those commits to the fork remote (`origin` = `robertmonka/gitbutler`) so `origin/gitea-native-integration` (or the branch Windows builds) matches the NixOS intent.
-3. On **Windows**, fetch and fast-forward that branch **before** `cargo` / `pnpm` — never compile first and sync later.
+1. On **NixOS**, publish everything that belongs in the Windows build: updates from the target (`but pull` when appropriate) **and** all local applied fixes that should ship in this nightly (typically including `gitea-native-integration` and any other applied branches whose commits must land on that branch tip).
+2. Push those commits with `but push <branch>` to the fork remote (`origin` = `robertmonka/gitbutler`) so `origin/gitea-native-integration` (or the branch Windows builds) matches the NixOS intent.
+3. On **Windows**, sync that branch with `but` **before** `cargo` / `pnpm` — never compile first and sync later. Prefer `but branch update gitea-native-integration -s pick-remote` so the local tip matches the pushed remote tip; use `but undo` immediately if the update leaves conflicted commits. Do not use plain `but branch update` without `-s pick-remote` when the goal is “same tip as origin”.
 
-Do **not** treat “Windows reset to `origin/gitea-native-integration`” as “same as NixOS” unless step 2 already ran. Unpushed NixOS commits are invisible to Windows.
+Do **not** treat “Windows is on `gitea-native-integration`” as “same as NixOS” unless step 2 already ran. Unpushed NixOS commits are invisible to Windows.
 
 Run this in PowerShell 7. Call `pnpm.cmd` (not the `pnpm` PowerShell shim): the `.ps1` wrapper drops `--` and turbo then sees `--mode` as its own flag. Overlap the desktop frontend with `gitbutler-git` / `but` so those minutes are not added on top of Rust. `CARGO_INCREMENTAL=1` keeps later Windows rebuilds from doing a full MSVC relink of the 50–70 MB binaries.
 
@@ -86,17 +86,17 @@ Once, as Administrator, exclude the tree from Microsoft Defender realtime scanni
 Add-MpPreference -ExclusionPath C:\webarm\gitbutler
 ```
 
-Only after the NixOS → remote push above, fast-forward the Windows clone:
+Only after the NixOS → remote push above, sync the Windows clone with `but`, then build:
 
 ```bash
 /mnt/c/Program\ Files/PowerShell/7/pwsh.exe -NoProfile -Command '
 $ErrorActionPreference = "Stop"
 $p = "C:\webarm\gitbutler"
 $install = "$env:LOCALAPPDATA\GitButler\bin"
+$but = "$install\but.exe"
 $gitbash = "C:\Program Files\Git\bin\bash.exe"
 Set-Location $p
-& "C:\Program Files\Git\cmd\git.exe" fetch origin
-& "C:\Program Files\Git\cmd\git.exe" pull --ff-only origin gitea-native-integration
+& $but branch update gitea-native-integration -s pick-remote
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $env:CHANNEL = "nightly"
 $env:VERSION = "nightly"
@@ -108,12 +108,14 @@ pnpm.cmd install --frozen-lockfile
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 pnpm.cmd build:desktop -- --mode nightly
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Wait-Process -Id $rust.Id
+if (-not $rust.HasExited) { Wait-Process -Id $rust.Id }
+$rust.Refresh()
 if ($rust.ExitCode -ne 0) { exit $rust.ExitCode }
 & $gitbash ./crates/gitbutler-tauri/inject-git-binaries.sh
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 cargo build --release -p gitbutler-tauri --features windows
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Get-Process -Name but,gitbutler-tauri -ErrorAction SilentlyContinue | Stop-Process -Force
 New-Item -ItemType Directory -Force $install | Out-Null
 Copy-Item -Force "$p\target\release\but.exe" "$install\but.exe"
 Copy-Item -Force "$p\target\release\gitbutler-tauri.exe" "$install\gitbutler-tauri.exe"
