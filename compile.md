@@ -66,6 +66,18 @@ Expected: all four skill paths exist, `.but_skill_stamp` matches the current `bu
 
 Build in the native NTFS clone of this fork at `C:\webarm\gitbutler` (branch `gitea-native-integration`). Do not build from `\\wsl.localhost\...` — the WSL file bridge is slow and fragile. Do not wrap the Windows build in `nix develop`.
 
+### Sync from NixOS before compiling (required)
+
+Windows must not build from a stale `origin` tip. A local NixOS GitButler workspace often holds commits that are **not** on the remote yet (applied stacks such as `gitea-native-integration`, docs/compile fixes, Windows PE stack, etc.). `git pull --ff-only` / `reset --hard origin/...` on Windows only sees what was **pushed**. Building after that without a push leaves Windows on an outdated tree.
+
+**Required sequence before every Windows compile that should match current NixOS work:**
+
+1. On **NixOS**, publish everything that belongs in the Windows build: updates from `main` / the integration target **and** all local applied fixes that should ship in this nightly (the stacks you care about for the binary — typically including `gitea-native-integration` and any other applied branches whose commits must land on that branch tip).
+2. Push those commits to the fork remote (`origin` = `robertmonka/gitbutler`) so `origin/gitea-native-integration` (or the branch Windows builds) matches the NixOS intent.
+3. On **Windows**, fetch and fast-forward that branch **before** `cargo` / `pnpm` — never compile first and sync later.
+
+Do **not** treat “Windows reset to `origin/gitea-native-integration`” as “same as NixOS” unless step 2 already ran. Unpushed NixOS commits are invisible to Windows.
+
 Run this in PowerShell 7. Call `pnpm.cmd` (not the `pnpm` PowerShell shim): the `.ps1` wrapper drops `--` and turbo then sees `--mode` as its own flag. Overlap the desktop frontend with `gitbutler-git` / `but` so those minutes are not added on top of Rust. `CARGO_INCREMENTAL=1` keeps later Windows rebuilds from doing a full MSVC relink of the 50–70 MB binaries.
 
 Once, as Administrator, exclude the tree from Microsoft Defender realtime scanning (otherwise even a no-op release relink stays many minutes):
@@ -74,7 +86,7 @@ Once, as Administrator, exclude the tree from Microsoft Defender realtime scanni
 Add-MpPreference -ExclusionPath C:\webarm\gitbutler
 ```
 
-Before compiling, fast-forward the Windows clone from the fork (`origin` = `robertmonka/gitbutler`, branch `gitea-native-integration`). NixOS updates are out of scope here.
+Only after the NixOS → remote push above, fast-forward the Windows clone:
 
 ```bash
 /mnt/c/Program\ Files/PowerShell/7/pwsh.exe -NoProfile -Command '
@@ -83,6 +95,7 @@ $p = "C:\webarm\gitbutler"
 $install = "$env:LOCALAPPDATA\GitButler\bin"
 $gitbash = "C:\Program Files\Git\bin\bash.exe"
 Set-Location $p
+& "C:\Program Files\Git\cmd\git.exe" fetch origin
 & "C:\Program Files\Git\cmd\git.exe" pull --ff-only origin gitea-native-integration
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $env:CHANNEL = "nightly"
