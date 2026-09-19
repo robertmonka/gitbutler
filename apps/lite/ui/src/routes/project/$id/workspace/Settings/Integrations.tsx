@@ -3,14 +3,17 @@ import { useQueryClient, useSuspenseQueries } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FC, type ReactNode } from "react";
 import {
 	bitbucketAccountsQueryOptions,
+	giteaAccountsQueryOptions,
 	githubAccountsQueryOptions,
 	gitlabAccountsQueryOptions,
 } from "#ui/api/queries.ts";
 import {
 	useForgetBitbucketAccount,
+	useForgetGiteaAccount,
 	useForgetGithubAccount,
 	useForgetGitlabAccount,
 	useStoreBitbucketApiToken,
+	useStoreGiteaSelfhostedPat,
 	useStoreGithubPat,
 	useStoreGitlabPat,
 } from "#ui/api/mutations.ts";
@@ -75,32 +78,41 @@ type ForgeCardProps = {
 	tokenHint: ReactNode;
 	/** Bitbucket wants an email alongside the token; the others do not. */
 	needsEmail?: boolean;
+	/** Gitea (and similar self-hosted forges) need an API host with the token. */
+	needsHost?: boolean;
 	/** Present when the forge supports signing in through the browser. */
 	onSignIn?: () => void;
 	/** Shown once the browser flow has a code for the user to enter. */
 	pendingCode?: string | null;
 	isBusy: boolean;
-	onAdd: (token: string, email: string) => void;
+	onAdd: (input: { token: string; email: string; host: string; viewHost: string }) => void;
 };
 
 const ForgeCard: FC<ForgeCardProps> = (p) => {
 	const [adding, setAdding] = useState(false);
 	const [token, setToken] = useState("");
 	const [email, setEmail] = useState("");
+	const [host, setHost] = useState("");
+	const [viewHost, setViewHost] = useState("");
 
 	// Bitbucket names the account by the email its token was issued for, so a blank one
-	// would post a request it cannot fulfil.
-	const incomplete = token.trim() === "" || (p.needsEmail === true && email.trim() === "");
+	// would post a request it cannot fulfil. Gitea likewise needs a host to talk to.
+	const incomplete =
+		token.trim() === "" ||
+		(p.needsEmail === true && email.trim() === "") ||
+		(p.needsHost === true && host.trim() === "");
 
 	const close = () => {
 		setAdding(false);
 		setToken("");
 		setEmail("");
+		setHost("");
+		setViewHost("");
 	};
 
 	const submit = () => {
 		if (incomplete) return;
-		p.onAdd(token, email);
+		p.onAdd({ token, email, host, viewHost });
 		close();
 	};
 
@@ -118,6 +130,31 @@ const ForgeCard: FC<ForgeCardProps> = (p) => {
 				}}
 			>
 				<div className={styles.fields}>
+					{p.needsHost === true && (
+						<>
+							<Field.Root render={<FieldRootStyles />}>
+								<Field.Label render={<FieldLabelStyles />}>API URL</Field.Label>
+								<Field.Control
+									render={<FieldControlStyles />}
+									type="url"
+									required
+									placeholder="https://gitea.example.com"
+									value={host}
+									onValueChange={(value) => setHost(value)}
+								/>
+							</Field.Root>
+							<Field.Root render={<FieldRootStyles />}>
+								<Field.Label render={<FieldLabelStyles />}>View URL</Field.Label>
+								<Field.Control
+									render={<FieldControlStyles />}
+									type="url"
+									placeholder="Optional, when the UI differs from the API"
+									value={viewHost}
+									onValueChange={(value) => setViewHost(value)}
+								/>
+							</Field.Root>
+						</>
+					)}
 					{p.needsEmail === true && (
 						<Field.Root render={<FieldRootStyles />}>
 							<Field.Label render={<FieldLabelStyles />}>Account email</Field.Label>
@@ -206,20 +243,24 @@ const githubKind = (type: string): string =>
 	type === "oAuthUsername" ? "OAuth" : type === "enterprise" ? "Enterprise" : "Access token";
 
 export const Integrations: FC = () => {
-	const [{ data: github }, { data: gitlab }, { data: bitbucket }] = useSuspenseQueries({
-		queries: [
-			githubAccountsQueryOptions,
-			gitlabAccountsQueryOptions,
-			bitbucketAccountsQueryOptions,
-		],
-	});
+	const [{ data: github }, { data: gitlab }, { data: bitbucket }, { data: gitea }] =
+		useSuspenseQueries({
+			queries: [
+				githubAccountsQueryOptions,
+				gitlabAccountsQueryOptions,
+				bitbucketAccountsQueryOptions,
+				giteaAccountsQueryOptions,
+			],
+		});
 
 	const forgetGithub = useForgetGithubAccount();
 	const forgetGitlab = useForgetGitlabAccount();
 	const forgetBitbucket = useForgetBitbucketAccount();
+	const forgetGitea = useForgetGiteaAccount();
 	const addGithub = useStoreGithubPat();
 	const addGitlab = useStoreGitlabPat();
 	const addBitbucket = useStoreBitbucketApiToken();
+	const addGitea = useStoreGiteaSelfhostedPat();
 	const client = useQueryClient();
 
 	const [githubCode, setGithubCode] = useState<string | null>(null);
@@ -285,6 +326,14 @@ export const Integrations: FC = () => {
 			isBusy: forgetBitbucket.isPending,
 			onForget: () => forgetBitbucket.mutate(account),
 		})),
+		...gitea.map((account) => ({
+			key: `gitea:${JSON.stringify(account)}`,
+			logo: "gitea" as const,
+			username: account.info.username,
+			kind: `Gitea · ${account.info.host}`,
+			isBusy: forgetGitea.isPending,
+			onForget: () => forgetGitea.mutate(account),
+		})),
 	];
 
 	return (
@@ -327,7 +376,7 @@ export const Integrations: FC = () => {
 				isBusy={forgetGithub.isPending || addGithub.isPending || githubBusy}
 				onSignIn={signInGithub}
 				pendingCode={githubCode}
-				onAdd={(token) => addGithub.mutate(token)}
+				onAdd={({ token }) => addGithub.mutate(token)}
 			/>
 
 			<ForgeCard
@@ -344,7 +393,7 @@ export const Integrations: FC = () => {
 					</>
 				}
 				isBusy={forgetGitlab.isPending || addGitlab.isPending}
-				onAdd={(token) => addGitlab.mutate(token)}
+				onAdd={({ token }) => addGitlab.mutate(token)}
 			/>
 
 			<ForgeCard
@@ -364,7 +413,29 @@ export const Integrations: FC = () => {
 				}
 				needsEmail
 				isBusy={forgetBitbucket.isPending || addBitbucket.isPending}
-				onAdd={(accessToken, email) => addBitbucket.mutate({ email, accessToken })}
+				onAdd={({ token, email }) => addBitbucket.mutate({ email, accessToken: token })}
+			/>
+
+			<ForgeCard
+				name="Gitea"
+				logo="gitea"
+				blurb="Create and review pull requests"
+				tokenPlaceholder="Personal access token"
+				tokenHint={
+					<>
+						Token with repository and pull-request access. Generate one in Gitea under Settings →
+						Applications. Leave View URL empty when the web UI uses the same host as the API.
+					</>
+				}
+				needsHost
+				isBusy={forgetGitea.isPending || addGitea.isPending}
+				onAdd={({ token, host, viewHost }) =>
+					addGitea.mutate({
+						accessToken: token,
+						host,
+						viewHost: viewHost.trim() === "" ? null : viewHost.trim(),
+					})
+				}
 			/>
 
 			{githubError !== null && <p className={classes("text-12", styles.error)}>{githubError}</p>}
