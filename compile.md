@@ -198,11 +198,83 @@ install -m 0755 "\$builddir/target/release/gitbutler-tauri" /usr/local/bin/gitbu
 
 Outputs: Ubuntu `/usr/local/bin/gitbutler-tauri`, Ubuntu `/usr/local/bin/but`; the temporary `/tmp/gitbutler-build.*` directory is removed automatically.
 
+## GitButler Lite packages
+
+Lite is a separate Electron app (`apps/lite/`). It is **not** started by `but gui` (that opens `gitbutler-tauri`). Do not build the `.deb` target — this machine is not Debian. NixOS ships the AppImage. Windows ships the portable exe. Both land in `apps/lite/release/`.
+
+Run this only after the matching full local build above, so `target/release/but` (NixOS) or `target\release\but.exe` (Windows) already exists. `prepare-askpass` copies the askpass helper; it does not copy `but`. Copy `but` into `apps/lite/resources/bin` first, the same way CI does.
+
+### NixOS AppImage
+
+```bash
+nix develop /etc/nixos#gitbutler -c bash -lc '
+set -euo pipefail
+export CHANNEL=nightly
+export VERSION=nightly
+export OS=linux
+export CARGO_INCREMENTAL=1
+mkdir -p apps/lite/resources/bin
+cp -f target/release/but apps/lite/resources/bin/but
+chmod 755 apps/lite/resources/bin/but
+pnpm -F @gitbutler/but-sdk build:release
+electron_dir=$(echo node_modules/.pnpm/electron@*/node_modules/electron)
+if [ ! -x "$electron_dir/dist/electron" ]; then
+  node "$electron_dir/install.js"
+fi
+pnpm -F @gitbutler/lite build
+pnpm -F @gitbutler/lite prepare-askpass
+pnpm -F @gitbutler/lite exec electron-builder --linux AppImage
+'
+```
+
+Output: `apps/lite/release/GitButler Next Nightly-0.0.0-dev-x64.AppImage`. `electron-builder` also leaves `apps/lite/release/linux-unpacked/`; that directory is a build leftover, not the package to run.
+
+Launch it from NixOS, not from Windows, so WSLg draws the same black frame as `~/.local/bin/gitbutler-tauri`. Force X11. Do not set `NIXOS_OZONE_WL` and do not use Wayland — a Wayland or Windows-native window is a different frame.
+
+```bash
+appimage=$(printf "%s\n" /home/robert/dev/gitbutler/apps/lite/release/*.AppImage)
+chmod +x "$appimage"
+eval "$(grep "^export " ~/.local/bin/gitbutler-tauri)"
+export GDK_BACKEND=x11
+export ELECTRON_OZONE_PLATFORM_HINT=x11
+export GTK_THEME="${GTK_THEME:-Adwaita:dark}"
+unset NIXOS_OZONE_WL
+exec "$appimage" --ozone-platform=x11
+```
+
+The `eval` line reuses the Tauri wrapper's `LD_LIBRARY_PATH`, GIO, GSettings, and GStreamer exports. `--ozone-platform=x11` is what puts the window in that frame.
+
+### Windows portable exe
+
+Run in PowerShell 7 from `C:\webarm\gitbutler`, after the Windows full local build. Call `pnpm.cmd`.
+
+```powershell
+$ErrorActionPreference = "Stop"
+$p = "C:\webarm\gitbutler"
+Set-Location $p
+$env:CHANNEL = "nightly"
+$env:VERSION = "nightly"
+$env:OS = "windows"
+$env:CARGO_INCREMENTAL = "1"
+New-Item -ItemType Directory -Force "$p\apps\lite\resources\bin" | Out-Null
+Copy-Item -Force "$p\target\release\but.exe" "$p\apps\lite\resources\bin\but.exe"
+pnpm.cmd -F @gitbutler/but-sdk build:release
+$electronDir = (Get-Item "$p\node_modules\.pnpm\electron@*\node_modules\electron").FullName
+if (-not (Test-Path "$electronDir\dist\electron.exe")) {
+  node "$electronDir\install.js"
+}
+pnpm.cmd -F @gitbutler/lite build
+pnpm.cmd -F @gitbutler/lite prepare-askpass
+pnpm.cmd -F @gitbutler/lite exec electron-builder --win portable
+```
+
+Output: `C:\webarm\gitbutler\apps\lite\release\GitButler Next Nightly 0.0.0-dev.exe`. Run that file. It is a Windows window, not the NixOS WSLg frame, and `but gui` does not open it.
+
 ## GitButler Lite (dev)
 
-Lite is a separate Electron app (`apps/lite/`). It is **not** started by `but gui` (that opens `gitbutler-tauri`).
+`pnpm dev:lite` is only the Turborepo watch for day-to-day UI work. It is not the packaged app above.
 
-On NixOS/WSL, run from the repo flake shell (`direnv` / `nix develop`) so Electron can load system GUI libraries. Upstream `pnpm dev:lite` is Turborepo watch for `@gitbutler/lite`. If `@gitbutler/but-sdk` native bindings are missing, build them first: `pnpm build:sdk`.
+On NixOS/WSL, run from the repo flake shell (`direnv` / `nix develop`) so Electron can load system GUI libraries. If `@gitbutler/but-sdk` native bindings are missing, build them first: `pnpm build:sdk`.
 
 ```bash
 cd /home/robert/dev/gitbutler
@@ -210,4 +282,4 @@ pnpm build:sdk   # when packages/but-sdk native .node bindings are missing
 pnpm dev:lite
 ```
 
-On Windows, run the same commands from `C:\webarm\gitbutler` (native NTFS clone, not `\\wsl.localhost\...`).
+On Windows, run the same commands from `C:\webarm\gitbutler` (native NTFS clone, not `\\wsl.localhost\...`), with `pnpm.cmd`.
