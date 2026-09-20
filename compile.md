@@ -227,22 +227,15 @@ pnpm -F @gitbutler/lite exec electron-builder --linux AppImage
 '
 ```
 
-Output: `apps/lite/release/GitButler Next Nightly-0.0.0-dev-x64.AppImage`. `electron-builder` also leaves `apps/lite/release/linux-unpacked/`; that directory is a build leftover, not the package to run.
+Output: `apps/lite/release/GitButler Next Nightly-0.0.0-dev-x86_64.AppImage`. `electron-builder` also leaves `apps/lite/release/linux-unpacked/`; that directory is a build leftover, not the package to run.
 
-Launch it from NixOS, not from Windows, so WSLg draws the same black frame as `~/.local/bin/gitbutler-tauri`. Force X11. Do not set `NIXOS_OZONE_WL` and do not use Wayland — a Wayland or Windows-native window is a different frame.
+After `sudo nixos-rebuild switch --flake /etc/nixos#nixos`, launch it with:
 
 ```bash
-appimage=$(printf "%s\n" /home/robert/dev/gitbutler/apps/lite/release/*.AppImage)
-chmod +x "$appimage"
-eval "$(grep "^export " ~/.local/bin/gitbutler-tauri)"
-export GDK_BACKEND=x11
-export ELECTRON_OZONE_PLATFORM_HINT=x11
-export GTK_THEME="${GTK_THEME:-Adwaita:dark}"
-unset NIXOS_OZONE_WL
-exec "$appimage" --ozone-platform=x11
+gitbutler-next
 ```
 
-The `eval` line reuses the Tauri wrapper's `LD_LIBRARY_PATH`, GIO, GSettings, and GStreamer exports. `--ozone-platform=x11` is what puts the window in that frame.
+`~/.local/bin/gitbutler-next` is the wrapper next to `gitbutler-tauri`. NixOS has no `libfuse.so.2`, so the wrapper does not run the AppImage. It execs `apps/lite/release/linux-unpacked/gitbutler-next-nightly` with Tauri's library path plus the Electron libraries (`nspr`, `nss`, `at-spi2-core`, `cups`, `cairo`, `pango`, the X composite/damage/ext/fixes/randr libraries, `libxkbcommon`, `systemd` minimal libs, and `alsa-lib`), and the same GIO, GSettings, and GStreamer exports. It uses Wayland, like Tauri (`--ozone-platform=wayland`, `WaylandWindowDecorations`). That is the WSLg black frame. Do not force X11 and do not set `NIXOS_OZONE_WL`: X11 makes Windows draw the light title bar. The desktop button layout is `appmenu:close`, which leaves Electron's own frame with only a close button. The wrapper points `DCONF_PROFILE` at `~/.config/dconf/profile/gitbutler-next`, whose file database sets `button-layout` to `:minimize,maximize,close` for this process only. It also creates `~/.config/GitButler Next Nightly/settings.json` when missing. `setsid -f` starts the window and returns the terminal immediately. `but gui` still opens Tauri, not Lite.
 
 ### Windows portable exe
 
