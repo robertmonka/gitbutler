@@ -82,7 +82,7 @@
 	const modeQuery = $derived(modeService.mode(projectId));
 
 	// =============================================================================
-	// FORGE INTEGRATION (GitHub & GitLab)
+	// FORGE INTEGRATION
 	// =============================================================================
 
 	const gitlabUserService = inject(GITLAB_USER_SERVICE);

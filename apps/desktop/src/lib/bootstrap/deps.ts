@@ -26,6 +26,7 @@ import {
 } from "$lib/forge/bitbucket/bitbucketUserService.svelte";
 import { CHECKS_MONITOR, ChecksMonitor } from "$lib/forge/checksMonitor.svelte";
 import { FORGE_INFO_SERVICE, ForgeInfoService } from "$lib/forge/forgeInfo.svelte";
+import { GITEA_USER_SERVICE, GiteaUserService } from "$lib/forge/gitea/giteaUserService.svelte";
 import { GitHubUserService, GITHUB_USER_SERVICE } from "$lib/forge/github/githubUserService.svelte";
 import { GITLAB_USER_SERVICE, GitLabUserService } from "$lib/forge/gitlab/gitlabUserService.svelte";
 import { LISTING_SERVICE, ListingService } from "$lib/forge/listingService.svelte";
@@ -130,6 +131,7 @@ export function initDependencies(args: {
 	const githubUserService = new GitHubUserService(clientState.backendApi);
 	const gitlabUserService = new GitLabUserService(clientState.backendApi, secretsService);
 	const bitbucketUserService = new BitbucketUserService(clientState.backendApi);
+	const giteaUserService = new GiteaUserService(clientState.backendApi);
 
 	const uiState = new UiState(
 		reactive(() => clientState.uiState ?? uiStateSlice.getInitialState()),
@@ -318,6 +320,7 @@ export function initDependencies(args: {
 		[PR_SERVICE, prService],
 		[REPO_SERVICE, repoService],
 		[GITHUB_USER_SERVICE, githubUserService],
+		[GITEA_USER_SERVICE, giteaUserService],
 		[GITLAB_USER_SERVICE, gitlabUserService],
 		[BITBUCKET_USER_SERVICE, bitbucketUserService],
 		[GIT_CONFIG_SERVICE, gitConfig],

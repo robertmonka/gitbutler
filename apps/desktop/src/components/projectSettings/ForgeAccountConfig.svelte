@@ -35,7 +35,8 @@
 	}: Props = $props();
 
 	const { openGeneralSettings } = useSettingsModal();
-	const hasAccounts = $derived(accounts.length > 0 && preferredAccount);
+	const hasAccounts = $derived(accounts.length > 0);
+	const resolvedAccount = $derived(preferredAccount ?? accounts.at(0));
 
 	function handleAccountChange(value: string) {
 		const parsedAccount = stringToAccount(value);
@@ -64,7 +65,7 @@
 			>
 		</div>
 	{:else}
-		{@const account = preferredAccount!}
+		{@const account = resolvedAccount!}
 		{@const accountStr = accountToString(account)}
 		<Select
 			label="{displayName} account for this project"
