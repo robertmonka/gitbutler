@@ -1,6 +1,7 @@
 <script lang="ts">
 	import bitbucketLogoSvg from "$lib/assets/unsized-logos/bitbucket.svg?raw";
 	import githubLogoSvg from "$lib/assets/unsized-logos/github.svg?raw";
+	import giteaLogoSvg from "$lib/assets/unsized-logos/gitea.svg?raw";
 	import gitlabLogoSvg from "$lib/assets/unsized-logos/gitlab.svg?raw";
 	import { persistedDismissedForgeIntegrationPrompt } from "$lib/config/config";
 	import { useForgeAuth } from "$lib/forge/forgeAuth.svelte";
@@ -16,7 +17,7 @@
 
 	const { projectId }: Props = $props();
 
-	const { openGeneralSettings } = useSettingsModal();
+	const { openGeneralSettings, openProjectSettings } = useSettingsModal();
 	const forgeInfoService = inject(FORGE_INFO_SERVICE);
 	const forgeInfoQuery = $derived(forgeInfoService.get(projectId));
 	const forgeInfo = $derived(forgeInfoQuery.response);
@@ -24,7 +25,10 @@
 	const canSetupIntegration = $derived(
 		forgeInfo &&
 			!auth.authenticated.current &&
-			(forgeInfo.name === "github" || forgeInfo.name === "gitlab" || forgeInfo.name === "bitbucket")
+			(forgeInfo.name === "github" ||
+				forgeInfo.name === "gitlab" ||
+				forgeInfo.name === "bitbucket" ||
+				forgeInfo.name === "gitea")
 			? forgeInfo.name
 			: undefined,
 	);
@@ -56,6 +60,10 @@
 	});
 
 	function configureIntegration(): void {
+		if (canSetupIntegration === "gitea") {
+			openProjectSettings(projectId, "project");
+			return;
+		}
 		openGeneralSettings("integrations");
 	}
 
@@ -63,7 +71,7 @@
 		dismissedTheIntegrationPrompt.set(true);
 	}
 
-	type SetupForgeName = "github" | "gitlab" | "bitbucket";
+	type SetupForgeName = "github" | "gitlab" | "bitbucket" | "gitea";
 
 	function forgeLabelFor(name: SetupForgeName): string {
 		switch (name) {
@@ -73,6 +81,8 @@
 				return "GitLab";
 			case "bitbucket":
 				return "Bitbucket";
+			case "gitea":
+				return "Gitea";
 		}
 	}
 
@@ -88,6 +98,8 @@
 				return "https://docs.gitbutler.com/features/forge-integration/gitlab-integration";
 			case "bitbucket":
 				return "https://docs.gitbutler.com/features/forge-integration/bitbucket-integration";
+			case "gitea":
+				return "https://docs.gitbutler.com/features/forge-integration/gitea-integration";
 		}
 	}
 
@@ -99,6 +111,8 @@
 				return gitlabLogoSvg;
 			case "bitbucket":
 				return bitbucketLogoSvg;
+			case "gitea":
+				return giteaLogoSvg;
 		}
 	}
 </script>

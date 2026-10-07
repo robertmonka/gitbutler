@@ -1,6 +1,7 @@
 <script lang="ts">
 	import BitbucketIntegration from "$components/settings/BitbucketIntegration.svelte";
 	import GithubIntegration from "$components/settings/GithubIntegration.svelte";
+	import GiteaIntegration from "$components/settings/GiteaIntegration.svelte";
 	import GitlabIntegration from "$components/settings/GitlabIntegration.svelte";
 	import { SETTINGS_SERVICE } from "$lib/settings/appSettings";
 	import { inject } from "@gitbutler/core/context";
@@ -19,6 +20,7 @@
 <GithubIntegration />
 <GitlabIntegration />
 <BitbucketIntegration />
+<GiteaIntegration />
 <Spacer />
 <CardGroup>
 	<CardGroup.Item labelFor="autoFillPrDescription">
