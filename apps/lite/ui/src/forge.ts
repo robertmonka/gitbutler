@@ -42,6 +42,9 @@ export const forgeDestination = (
 		case "bitbucket":
 			label = "Bitbucket";
 			break;
+		case "gitea":
+			label = "Gitea";
+			break;
 		default:
 			return null;
 	}
@@ -61,10 +64,22 @@ export const isCloudForge = (destination: ForgeDestination): boolean => {
 		case "bitbucket":
 			cloudHost = "bitbucket.org";
 			break;
+		case "gitea":
+			cloudHost = "gitea.com";
+			break;
 	}
 
 	return cloudHost === destination.host;
 };
+
+/** A stored account can serve this destination. Self-hosted Gitea is not gitea.com. */
+export const forgeHasAccount = (
+	destination: ForgeDestination | null,
+	accounts: ReadonlyArray<unknown>,
+): boolean =>
+	destination !== null &&
+	accounts.length > 0 &&
+	(destination.name === "gitea" || isCloudForge(destination));
 
 // https://linear.app/gitbutler/issue/GB-1479/use-error-codes-to-improve-displayhandling-of-backend-errors
 export const forgeAuthFailure = (error: unknown): "missing" | "rejected" | null => {

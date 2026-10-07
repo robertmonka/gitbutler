@@ -1,5 +1,5 @@
 import { Avatar } from "@gitbutler/ui-react/Avatar.tsx";
-import { forgeAuthFailure, forgeDestination, isCloudForge } from "#ui/forge.ts";
+import { forgeAuthFailure, forgeDestination, forgeHasAccount } from "#ui/forge.ts";
 import { ForgeAuthPrompt } from "./ForgeAuthPrompt.tsx";
 import { ResizeHandle } from "@gitbutler/ui-react/ResizeHandle.tsx";
 import { TextLink } from "@gitbutler/ui-react/TextLink.tsx";
@@ -3010,7 +3010,7 @@ const LandedReviewView: FC<{ projectId: string; reviewId: number; branchName?: s
 		isPending: accountsPending,
 	} = useQuery({
 		...forgeAccountsQueryOptions(destination?.name),
-		select: (accounts) => destination !== null && isCloudForge(destination) && accounts.length > 0,
+		select: (accounts) => forgeHasAccount(destination, accounts),
 	});
 	if (destination && accountsError) {
 		return (
@@ -3487,7 +3487,7 @@ const UnappliedBranchDetails: FC<BranchDetailsProps> = ({
 		isPending: accountsPending,
 	} = useQuery({
 		...forgeAccountsQueryOptions(destination?.name),
-		select: (accounts) => destination !== null && isCloudForge(destination) && accounts.length > 0,
+		select: (accounts) => forgeHasAccount(destination, accounts),
 	});
 
 	const authFailure = hasAccount === false ? "missing" : forgeAuthFailure(reviewError);
@@ -3622,7 +3622,7 @@ const LaneBranchDetails: FC<BranchDetailsProps> = ({
 		isSuccess: accountsSuccess,
 	} = useQuery({
 		...forgeAccountsQueryOptions(destination?.name),
-		select: (accounts) => destination !== null && isCloudForge(destination) && accounts.length > 0,
+		select: (accounts) => forgeHasAccount(destination, accounts),
 	});
 	const authFailure = hasAccount === false ? "missing" : forgeAuthFailure(reviewError);
 	const canUseForge = accountsSuccess && hasAccount && authFailure === null;
