@@ -748,6 +748,23 @@ export declare function forgeProvider(projectId: string): Promise<ForgeName | nu
 export declare function forgetBitbucketAccount(account: BitbucketAccountIdentifier): Promise<void>
 
 /**
+ * Removes stored credentials for a specific Gitea account.
+ *
+ * Deletes the access token associated with the specified Gitea account identifier.
+ *
+ * # Arguments
+ *
+ * * `account` - Identifier for the Gitea account
+ *
+ * # Returns
+ *
+ * * `Ok(())` - Always succeeds, even if no token was found
+ *
+ * {@link ../../../../../crates/but-api/src/gitea.rs:43}
+ */
+export declare function forgetGiteaAccount(account: GiteaAccountIdentifier): Promise<void>
+
+/**
  * Removes stored credentials for a specific GitHub account.
  *
  * Deletes the access token associated with the specified GitHub account identifier.
@@ -845,6 +862,25 @@ export declare function getGbConfig(projectId: string): Promise<GitConfigSetting
  * {@link ../../../../../crates/but-api/src/github.rs}
  */
 export declare function getGhUser(account: GithubAccountIdentifier): Promise<GithubAuthenticatedUserSensitive | null>
+
+/**
+ * Retrieves the authenticated user information for a Gitea account.
+ *
+ * Returns `None` if no credentials are stored for the account.
+ *
+ * # Arguments
+ *
+ * * `account` - Identifier for the Gitea account to query
+ *
+ * # Returns
+ *
+ * * `Ok(Some(AuthenticatedUser))` - User information
+ * * `Ok(None)` - No credentials stored for this account
+ * * `Err(_)` - If the API request fails or credentials are invalid
+ *
+ * {@link ../../../../../crates/but-api/src/gitea.rs:79}
+ */
+export declare function getGiteaUser(account: GiteaAccountIdentifier): Promise<AuthenticatedUserSensitive | null>
 
 /**
  * Retrieves the authenticated user information for a GitLab account.
@@ -1062,6 +1098,18 @@ export declare function listEditors(): Promise<Array<Editor>>
  * {@link ../../../../../crates/but-api/src/bitbucket.rs}
  */
 export declare function listKnownBitbucketAccounts(): Promise<Array<BitbucketAccountIdentifier>>
+
+/**
+ * Lists all Gitea accounts with stored credentials.
+ *
+ * # Returns
+ *
+ * * `Ok(Vec<GiteaAccountIdentifier>)` - List of all known accounts
+ * * `Err(_)` - If storage access fails
+ *
+ * {@link ../../../../../crates/but-api/src/gitea.rs:94}
+ */
+export declare function listKnownGiteaAccounts(): Promise<Array<GiteaAccountIdentifier>>
 
 /**
  * Lists all GitHub accounts with stored credentials.
@@ -1527,6 +1575,26 @@ export declare function showInFinder(projectId: string, checkout: ChangesSource,
  * {@link ../../../../../crates/but-api/src/bitbucket.rs}
  */
 export declare function storeBitbucketApiToken(email: string, accessToken: string): Promise<BitbucketAuthStatusResponse>
+
+/**
+ * Stores a Gitea Personal Access Token (PAT) for a self-hosted instance.
+ *
+ * Validates and stores the provided PAT for a specific Gitea host, then returns
+ * the authenticated user information.
+ *
+ * # Arguments
+ *
+ * * `access_token` - The Gitea PAT to store
+ * * `host` - The Gitea instance URL, for example `https://gitea.company.com`
+ *
+ * # Returns
+ *
+ * * `Ok(AuthStatusResponse)` - Token is valid, contains user details and host
+ * * `Err(_)` - If the token is invalid, host is unreachable, or storage fails
+ *
+ * {@link ../../../../../crates/but-api/src/gitea.rs:21}
+ */
+export declare function storeGiteaSelfhostedPat(accessToken: string, host: string, viewHost: string | null): Promise<AuthStatusResponseSensitive>
 
 /**
  * Stores a GitHub Personal Access Token (PAT) for github.com.
@@ -3029,7 +3097,7 @@ export type ForgeInfo = {
 };
 
 /** Supported git forge types */
-export type ForgeName = "github" | "gitlab" | "bitbucket" | "azure";
+export type ForgeName = "github" | "gitlab" | "gitea" | "bitbucket" | "azure";
 
 /**
  * Represents a review (pull request/merge request) from a forge platform (GitHub, GitLab, etc.).
@@ -3300,6 +3368,9 @@ export type ForgeUser = {
 } | {
   provider: "bitbucket";
   details: BitbucketAccountIdentifier;
+} | {
+  provider: "gitea";
+  details: GiteaAccountIdentifier;
 };
 
 /**
@@ -3341,6 +3412,49 @@ export type GitHubOAuthAppSettings = {
 
 /** Controls whether GitButler registers reviewed stacks with GitHub's native stacks API. */
 export type GitHubStackingMode = "auto" | "disabled" | "native";
+
+/** A stored Gitea account identifier. */
+export type GiteaAccountIdentifier = {
+  type: "selfHosted";
+  info: {
+    /** The Gitea username. */
+    username: string;
+    /** The normalized Gitea API instance URL. */
+    host: string;
+    /** Optional web UI base URL for browser links when it differs from [`host`]. */
+    view_host: string | null;
+  };
+};
+
+/** Serializable version of [`AuthStatusResponse`] with exposed access token. */
+export type GiteaAuthStatusResponseSensitive = {
+  /** The Gitea access token as a plain string. */
+  accessToken: string;
+  /** The Gitea username. */
+  username: string;
+  /** The user's display name, if available. */
+  name: string | null;
+  /** The user's email address, if available. */
+  email: string | null;
+  /** The normalized Gitea API instance URL. */
+  host: string;
+  /** Optional web UI base URL for browser links. */
+  viewHost: string | null;
+};
+
+/** Serializable version of [`AuthenticatedUser`] with exposed access token. */
+export type GiteaAuthenticatedUserSensitive = {
+  /** The Gitea access token as a plain string. */
+  accessToken: string;
+  /** The Gitea username. */
+  username: string;
+  /** URL to the user's avatar image, if available. */
+  avatarUrl: string | null;
+  /** The user's display name, if available. */
+  name: string | null;
+  /** The user's email address, if available. */
+  email: string | null;
+};
 
 export type GithubAccountIdentifier = {
   type: "oAuthUsername";
@@ -4738,6 +4852,13 @@ export type UnifiedPatch = {
     /** The total amount of lines removed. */
     linesRemoved: number;
   };
+};
+
+export type UpdateForgeReviewParams = {
+  title: string | null;
+  description: string | null;
+  targetBase: string | null;
+  state: string | null;
 };
 
 /** Parameters for updating the user profile. */

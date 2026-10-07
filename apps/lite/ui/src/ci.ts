@@ -2,8 +2,17 @@ import type { CiCheck, CiConclusion, CiStatus, ForgeInfo } from "@gitbutler/but-
 import { prForgeUrl } from "./pr.ts";
 
 // TODO: We're missing equivalent to prUrlPath from SDK for forge-agnostic CI summary URL.
-export const ciChecksSummaryUrl = (prNo: number, forge: ForgeInfo): string | null =>
-	forge.name === "github" ? `${prForgeUrl(prNo, forge)}/checks` : null;
+export const ciChecksSummaryUrl = (prNo: number, forge: ForgeInfo): string | null => {
+	const prUrl = prForgeUrl(prNo, forge);
+	switch (forge.name) {
+		case "github":
+			return `${prUrl}/checks`;
+		case "gitea":
+			return prUrl;
+		default:
+			return null;
+	}
+};
 
 export type AggregateCIStatus =
 	| "success"

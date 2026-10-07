@@ -62,6 +62,7 @@ export declare const apiParamNames: {
 	readonly forgeInfo: readonly ["projectId"];
 	readonly forgeProvider: readonly ["projectId"];
 	readonly forgetBitbucketAccount: readonly ["account"];
+	readonly forgetGiteaAccount: readonly ["account"];
 	readonly forgetGithubAccount: readonly ["account"];
 	readonly forgetGitlabAccount: readonly ["account"];
 	readonly getAiConfiguration: readonly [];
@@ -69,6 +70,7 @@ export declare const apiParamNames: {
 	readonly getBlobFile: readonly ["projectId", "relativePath", "blobId"];
 	readonly getGbConfig: readonly ["projectId"];
 	readonly getGhUser: readonly ["account"];
+	readonly getGiteaUser: readonly ["account"];
 	readonly getGlUser: readonly ["account"];
 	readonly getInitialBranchIntegration: readonly ["projectId", "branch", "strategy"];
 	readonly getLoginToken: readonly [];
@@ -95,6 +97,7 @@ export declare const apiParamNames: {
 	readonly listCommentReactions: readonly ["projectId", "commentId"];
 	readonly listEditors: readonly [];
 	readonly listKnownBitbucketAccounts: readonly [];
+	readonly listKnownGiteaAccounts: readonly [];
 	readonly listKnownGithubAccounts: readonly [];
 	readonly listKnownGitlabAccounts: readonly [];
 	readonly listPrograms: readonly [];
@@ -139,6 +142,7 @@ export declare const apiParamNames: {
 	readonly setTargetRefAndInitProject: readonly ["projectId", "targetRef", "pushRemote"];
 	readonly showInFinder: readonly ["projectId", "checkout", "path"];
 	readonly storeBitbucketApiToken: readonly ["email", "accessToken"];
+	readonly storeGiteaSelfhostedPat: readonly ["accessToken", "host", "viewHost"];
 	readonly storeGithubPat: readonly ["accessToken"];
 	readonly storeGitlabPat: readonly ["accessToken"];
 	readonly tearOffBranch: readonly ["projectId", "subjectBranch", "dryRun"];
