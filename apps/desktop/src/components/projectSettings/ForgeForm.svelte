@@ -1,6 +1,7 @@
 <script lang="ts">
 	import BitbucketAccountBadge from "$components/forge/BitbucketAccountBadge.svelte";
 	import GitHubAccountBadge from "$components/forge/GitHubAccountBadge.svelte";
+	import GiteaAccountBadge from "$components/forge/GiteaAccountBadge.svelte";
 	import GitLabAccountBadge from "$components/forge/GitLabAccountBadge.svelte";
 	import ForgeAccountConfig from "$components/projectSettings/ForgeAccountConfig.svelte";
 	import GitHubOrgRestrictionNotice from "$components/projectSettings/GitHubOrgRestrictionNotice.svelte";
@@ -11,12 +12,20 @@
 		stringToBitbucketAccountIdentifier,
 	} from "$lib/forge/bitbucket/bitbucketUserService.svelte";
 	import { usePreferredBitbucketUsername } from "$lib/forge/bitbucket/hooks.svelte";
+	import GiteaAccountForm from "$components/settings/GiteaAccountForm.svelte";
+	import GiteaUserLoginState from "$components/settings/GiteaUserLoginState.svelte";
+	import { BASE_BRANCH_SERVICE } from "$lib/baseBranch/baseBranchService.svelte";
 	import { FORGE_INFO_SERVICE } from "$lib/forge/forgeInfo.svelte";
 	import {
 		githubAccountIdentifierToString,
 		stringToGitHubAccountIdentifier,
 	} from "$lib/forge/github/githubUserService.svelte";
 	import { usePreferredGitHubUsername } from "$lib/forge/github/hooks.svelte";
+	import {
+		giteaAccountIdentifierToString,
+		stringToGiteaAccountIdentifier,
+	} from "$lib/forge/gitea/giteaUserService.svelte";
+	import { usePreferredGiteaUsername } from "$lib/forge/gitea/hooks.svelte";
 	import {
 		gitlabAccountIdentifierToString,
 		stringToGitLabAccountIdentifier,
@@ -26,13 +35,14 @@
 	import { PROJECTS_SERVICE } from "$lib/project/projectsService";
 	import { inject } from "@gitbutler/core/context";
 	import { reactive } from "@gitbutler/shared/reactiveUtils.svelte";
-	import { CardGroup, Select, SelectItem } from "@gitbutler/ui-svelte";
+	import { CardGroup, Select, SelectItem, Textbox } from "@gitbutler/ui-svelte";
 
 	import type {
 		BitbucketAccountIdentifier,
 		ForgeName,
 		ForgeUser,
 		GitHubStackingMode,
+		GiteaAccountIdentifier,
 		GithubAccountIdentifier,
 		GitlabAccountIdentifier,
 		ReviewStackingDescription,
@@ -44,6 +54,7 @@
 		{ label: "None", value: "default" },
 		{ label: "GitHub", value: "github" },
 		{ label: "GitLab", value: "gitlab" },
+		{ label: "Gitea", value: "gitea" },
 		{ label: "Azure", value: "azure" },
 		{ label: "BitBucket", value: "bitbucket" },
 	];
@@ -64,12 +75,14 @@
 	const githubStackingMode = $derived(
 		(gitConfigQuery.response?.gitbutlerGithubStackingMode ?? "auto") as GitHubStackingMode,
 	);
+	const baseBranchService = inject(BASE_BRANCH_SERVICE);
 	const projectQuery = $derived(projectsService.getProject(projectId));
 	const project = $derived(projectQuery.response);
+	const repoInfoQuery = $derived(baseBranchService.repo(projectId));
+	const repoDomain = $derived(repoInfoQuery.response?.domain);
 
 	const selectedOption = $derived(project?.forge_override || "default");
 
-	// GitHub hooks
 	const { preferredGitHubAccount, githubAccounts } = usePreferredGitHubUsername(
 		reactive(() => projectId),
 	);
@@ -92,7 +105,12 @@
 	const { preferredBitbucketAccount, bitbucketAccounts } = usePreferredBitbucketUsername(
 		reactive(() => projectId),
 	);
+	const { preferredGiteaAccount, giteaAccounts } = usePreferredGiteaUsername(
+		reactive(() => projectId),
+		reactive(() => repoDomain),
+	);
 
+	const resolvedGiteaAccount = $derived(preferredGiteaAccount.current);
 	function handleSelectionChange(selectedOption: ForgeSelection) {
 		if (!project) return;
 
@@ -135,6 +153,22 @@
 	async function updateGitHubStackingMode(value: GitHubStackingMode) {
 		await gitConfigService.setGbConfig(projectId, { gitbutlerGithubStackingMode: value });
 	}
+
+	function updatePreferredGiteaAccount(projectId: string, account: GiteaAccountIdentifier) {
+		projectsService.updatePreferredForgeUser(projectId, {
+			provider: "gitea",
+			details: account,
+		});
+	}
+
+	// Pin the resolved global account to this project when none is stored yet.
+	$effect(() => {
+		const account = resolvedGiteaAccount;
+		const proj = project;
+		if (account === undefined || proj === undefined) return;
+		if (proj.preferred_forge_user !== null) return;
+		updatePreferredGiteaAccount(projectId, account);
+	});
 </script>
 
 <CardGroup>
@@ -153,6 +187,7 @@
 				<br />
 				<span class="text-bold">Note:</span> Currently, only GitHub, GitLab and Bitbucket support pull
 				request creation.
+				<span class="text-bold">Note:</span> GitHub, GitLab, and Gitea support review creation.
 			{:else}
 				We’ve detected that you’re using <span class="text-bold"
 					>{determinedForgeType.toUpperCase()}</span
@@ -297,4 +332,70 @@
 			requestType="pull request"
 		/>
 	{/if}
+
+	{#if forgeInfo?.name === "gitea"}
+		<ForgeAccountConfig
+			{projectId}
+			displayName="Gitea"
+			accounts={giteaAccounts.current}
+			preferredAccount={resolvedGiteaAccount}
+			accountToString={giteaAccountIdentifierToString}
+			stringToAccount={stringToGiteaAccountIdentifier}
+			getUsername={(account) => account.info.username}
+			updatePreferredAccount={updatePreferredGiteaAccount}
+			AccountBadge={GiteaAccountBadge}
+			docsUrl="https://docs.gitbutler.com/features/forge-integration/gitea-integration"
+			requestType="pull request"
+		/>
+
+		<CardGroup.Item>
+			{#snippet title()}
+				Gitea instance
+			{/snippet}
+
+			{#snippet caption()}
+				{#if resolvedGiteaAccount}
+					Account connected globally. URLs below are used for API calls and opening the web UI.
+				{:else}
+					Add a Gitea account in General Settings or connect one below.
+				{/if}
+			{/snippet}
+
+			{#if resolvedGiteaAccount}
+				<GiteaUserLoginState account={resolvedGiteaAccount} />
+				{#if resolvedGiteaAccount.type === "selfHosted"}
+					<div class="gitea-instance-urls">
+						<Textbox
+							label="API URL"
+							size="large"
+							value={resolvedGiteaAccount.info.host}
+							readonly
+							helperText="Used for authentication and pull requests"
+						/>
+						<Textbox
+							label="View URL"
+							size="large"
+							value={resolvedGiteaAccount.info.viewHost ?? resolvedGiteaAccount.info.host}
+							readonly
+							helperText="Opened in the browser for this project"
+						/>
+					</div>
+				{/if}
+			{:else}
+				<GiteaAccountForm
+					submitLabel="Add account"
+					onStored={(account) => updatePreferredGiteaAccount(projectId, account)}
+				/>
+			{/if}
+		</CardGroup.Item>
+	{/if}
 </CardGroup>
+
+<style lang="postcss">
+	.gitea-instance-urls {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin-top: 12px;
+	}
+</style>
