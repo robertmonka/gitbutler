@@ -99,3 +99,37 @@ fn list_reviews_reports_an_unrecognized_forge_as_a_typed_state() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn list_reviews_uses_preferred_gitea_account_for_ssh_host_alias() -> Result<()> {
+    use but_api::legacy::forge::list_reviews;
+    use but_error::AnyhowContextExt as _;
+    use but_forge::ForgeUser;
+
+    let (repo, tmp) = crate::support::repo_with_feature_branch()?;
+    drop(repo);
+    git_at_dir(tmp.path())
+        .args([
+            "config",
+            "remote.origin.url",
+            "ssh://git@third.hostarm.com:4444/web/webarm.git",
+        ])
+        .run();
+    let mut ctx =
+        but_ctx::Context::from_repo_for_testing(open_repo(tmp.path())?)?.with_memory_app_cache();
+    let target_ref = gix::refs::FullName::try_from("refs/remotes/origin/main")?;
+    but_api::workspace::set_target_ref_and_init_project(&mut ctx, target_ref.as_ref(), None)?;
+    ctx.legacy_project.preferred_forge_user = Some(ForgeUser::Gitea(
+        but_gitea::GiteaAccountIdentifier::selfhosted("robert.monka", "https://gitea.hostarm.com"),
+    ));
+
+    match list_reviews(&ctx, None) {
+        Ok(_) => {}
+        Err(err) => assert_ne!(
+            err.custom_context_or_error_chain().code.to_string(),
+            "ForgeUnrecognized",
+            "preferred Gitea account must identify the SSH host alias: {err}"
+        ),
+    }
+    Ok(())
+}

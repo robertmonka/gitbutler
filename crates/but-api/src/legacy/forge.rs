@@ -83,10 +83,6 @@ pub(crate) fn derive_forge_repo_info(
     )
 }
 
-fn forge_override(saved: Option<&str>) -> Option<ForgeName> {
-    saved.and_then(ForgeName::from_override_str)
-}
-
 fn review_template_content(file: FileInfo) -> Result<String> {
     if file.size.is_none() {
         return Ok(String::new());
@@ -237,9 +233,10 @@ but_schemars::register_sdk_type!(ReviewTemplateInfo);
 pub fn review_template(ctx: &Context) -> Result<Option<ReviewTemplateInfo>> {
     let project_meta = ctx.project_meta()?;
     let repo = ctx.repo.get()?;
-    let forge_repo_info = but_forge::derive_forge_repo_info(
+    let forge_repo_info = derive_forge_repo_info(
         &remote_url(&project_meta, &repo)?,
-        forge_override(ctx.legacy_project.forge_override.as_deref()),
+        ctx.legacy_project.forge_override.as_deref(),
+        ctx.legacy_project.preferred_forge_user.as_ref(),
     );
     let forge = &forge_repo_info
         .as_ref()
@@ -283,9 +280,10 @@ pub fn set_review_template(ctx: &but_ctx::Context, template_path: Option<String>
     let mut git_config = repo.git_settings()?;
 
     let project_meta = ctx.project_meta()?;
-    let forge_repo_info = but_forge::derive_forge_repo_info(
+    let forge_repo_info = derive_forge_repo_info(
         &remote_url(&project_meta, &repo)?,
-        forge_override(ctx.legacy_project.forge_override.as_deref()),
+        ctx.legacy_project.forge_override.as_deref(),
+        ctx.legacy_project.preferred_forge_user.as_ref(),
     );
     let forge = &forge_repo_info
         .as_ref()
@@ -318,14 +316,16 @@ pub fn list_reviews(
     let (storage, forge_repo_info, preferred_forge_user) = {
         let project_meta = ctx.project_meta()?;
         let repo = ctx.repo.get()?;
-        let forge_repo_info = but_forge::derive_forge_repo_info(
+        let preferred_forge_user = ctx.legacy_project.preferred_forge_user.clone();
+        let forge_repo_info = derive_forge_repo_info(
             &remote_url(&project_meta, &repo)?,
-            forge_override(ctx.legacy_project.forge_override.as_deref()),
+            ctx.legacy_project.forge_override.as_deref(),
+            preferred_forge_user.as_ref(),
         );
         (
             but_forge_storage::Controller::from_path(but_path::app_data_dir()?),
             forge_repo_info,
-            ctx.legacy_project.preferred_forge_user.clone(),
+            preferred_forge_user,
         )
     };
 
@@ -361,17 +361,15 @@ pub fn review_apply(
         let project_meta = ctx.project_meta()?;
         let repo = ctx.repo.get()?;
         let remote_url = project_meta.target_remote_url(&repo)?;
-        let forge_repo_info = but_forge::derive_forge_repo_info(
+        let preferred_forge_user = ctx.legacy_project.preferred_forge_user.clone();
+        let forge_repo_info = derive_forge_repo_info(
             &remote_url,
-            forge_override(ctx.legacy_project.forge_override.as_deref()),
+            ctx.legacy_project.forge_override.as_deref(),
+            preferred_forge_user.as_ref(),
         )
         .context("No supported forge could be determined for this repository")?;
         let target_protocol = forge_repo_info.protocol.clone();
-        (
-            forge_repo_info,
-            ctx.legacy_project.preferred_forge_user.clone(),
-            target_protocol,
-        )
+        (forge_repo_info, preferred_forge_user, target_protocol)
     };
 
     let review = {
@@ -1237,16 +1235,18 @@ pub fn get_review(ctx: &Context, review_id: usize) -> Result<but_forge::ForgeRev
     let (storage, forge_repo_info, preferred_forge_user) = {
         let project_meta = ctx.project_meta()?;
         let repo = ctx.repo.get()?;
-        let forge_repo_info = but_forge::derive_forge_repo_info(
+        let preferred_forge_user = ctx.legacy_project.preferred_forge_user.clone();
+        let forge_repo_info = derive_forge_repo_info(
             &remote_url(&project_meta, &repo)?,
-            forge_override(ctx.legacy_project.forge_override.as_deref()),
+            ctx.legacy_project.forge_override.as_deref(),
+            preferred_forge_user.as_ref(),
         )
         .context("No forge could be determined for this repository.")?;
 
         (
             but_forge_storage::Controller::from_path(but_path::app_data_dir()?),
             forge_repo_info,
-            ctx.legacy_project.preferred_forge_user.clone(),
+            preferred_forge_user,
         )
     };
 
@@ -1267,14 +1267,16 @@ pub async fn get_repo_info(ctx: ThreadSafeContext) -> Result<but_forge::RepoInfo
         let ctx = ctx.into_thread_local();
         let project_meta = ctx.project_meta()?;
         let repo_ = ctx.repo.get()?;
-        let forge_repo_info = but_forge::derive_forge_repo_info(
+        let preferred_forge_user = ctx.legacy_project.preferred_forge_user.clone();
+        let forge_repo_info = derive_forge_repo_info(
             &remote_url(&project_meta, &repo_)?,
-            forge_override(ctx.legacy_project.forge_override.as_deref()),
+            ctx.legacy_project.forge_override.as_deref(),
+            preferred_forge_user.as_ref(),
         );
         (
             but_forge_storage::Controller::from_path(but_path::app_data_dir()?),
             forge_repo_info,
-            ctx.legacy_project.preferred_forge_user.clone(),
+            preferred_forge_user,
         )
     };
     but_forge::get_repo_info(
@@ -1561,15 +1563,17 @@ pub async fn set_review_draftiness(
         let ctx = ctx.into_thread_local();
         let project_meta = ctx.project_meta()?;
         let repo = ctx.repo.get()?;
-        let forge_repo_info = but_forge::derive_forge_repo_info(
+        let preferred_forge_user = ctx.legacy_project.preferred_forge_user.clone();
+        let forge_repo_info = derive_forge_repo_info(
             &remote_url(&project_meta, &repo)?,
-            forge_override(ctx.legacy_project.forge_override.as_deref()),
+            ctx.legacy_project.forge_override.as_deref(),
+            preferred_forge_user.as_ref(),
         );
 
         (
             but_forge_storage::Controller::from_path(but_path::app_data_dir()?),
             forge_repo_info,
-            ctx.legacy_project.preferred_forge_user.clone(),
+            preferred_forge_user,
         )
     };
 
