@@ -103,6 +103,7 @@ export const iconNames = [
 	"folder-tree",
 	"fork",
 	"git",
+	"gitea",
 	"github",
 	"gitlab",
 	"globe",

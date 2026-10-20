@@ -18,6 +18,8 @@ export function getForgeLogo(forgeName: string, small = false): IconName {
 		}
 
 		return "bitbucket";
+	} else if (forgeName === "gitea") {
+		return "gitea";
 	}
 
 	return "question";
