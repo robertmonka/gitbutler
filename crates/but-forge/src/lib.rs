@@ -422,6 +422,8 @@ fn endpoint_matches_repository(endpoint: &str, repo: &ForgeRepoInfo) -> bool {
 
 /// Select only stored accounts for the repository's forge and host. A saved
 /// preference must itself be eligible; it never falls back to another account.
+/// A preferred Gitea account is ignored for other forges. Preferred Gitea may match an
+/// SSH repository host that differs from the account API host.
 pub(crate) fn find_forge_account(
     preferred: &Option<ForgeUser>,
     repo: &ForgeRepoInfo,
@@ -446,9 +448,14 @@ pub(crate) fn find_forge_account(
             .collect(),
         ForgeName::Azure => return Ok(None),
     };
+    let preferred = preferred
+        .as_ref()
+        .filter(|user| user.forge_name() == repo.forge || !matches!(user, ForgeUser::Gitea(_)));
     Ok(accounts.into_iter().find(|account| {
-        preferred.as_ref().is_none_or(|user| user == account)
-            && account_matches_repository(account, repo)
+        preferred.is_none_or(|user| user == account)
+            && (account_matches_repository(account, repo)
+                || (preferred.is_some_and(|user| user == account)
+                    && matches!(account, ForgeUser::Gitea(_))))
     }))
 }
 
